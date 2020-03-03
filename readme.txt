@@ -1,3 +1,11 @@
+This is an extension on the master thesis of Hoi: https://github.com/yyhhoi/gait.
+
+The following changes/additions were made:
+-
+-
+-
+
+Original readme: 
 The project focuses on training a deep learning embedding layer that can represent the spatio-temporal characteristics of gait sequence
 
 Overall the project involves the following steps:
