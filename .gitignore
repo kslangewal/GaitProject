@@ -1,0 +1,10 @@
+./data
+./data/*
+./results
+./results/*
+./logs
+./logs/*
+./scripts/neuralODE/gait_neuralODE/model_chkpt
+./scripts/neuralODE/gait_neuralODE/model_chkpt/*
+./scripts/cVAE/vis
+./scripts/cVAE/vis/*

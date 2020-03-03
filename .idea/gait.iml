@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="PYTHON_MODULE" version="4">
+  <component name="NewModuleRootManager">
+    <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$/scripts/common" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/scripts/archived_scripts/tsne" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/scripts" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/scripts/archived_scripts/neuralODE" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/scripts/archived_scripts/neuralODE/pytorch_tutorial" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/scripts/archived_scripts/neuralODE/torchdiffeq" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/scripts/archived_scripts/neuralODE/gait_neuralODE" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/scripts/vVnet" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/scripts/archived_scripts/TemporalVAE" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/scripts/archived_scripts/single_skeleton_vae" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/scripts/GMVAE" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/scripts/GMVAE/gaussian_mixture_practise" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/scripts/Spatiotemporal_VAE" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/results_archive" />
+    </content>
+    <orderEntry type="jdk" jdkName="Remote Python 3.5.2 (ssh://hoi@138.245.135.14:22/data/hoi/gait_analysis/gait_env/bin/python)" jdkType="Python SDK" />
+    <orderEntry type="sourceFolder" forTests="false" />
+  </component>
+  <component name="PackageRequirementsSettings">
+    <option name="requirementsPath" value="" />
+  </component>
+  <component name="PyDocumentationSettings">
+    <option name="myDocStringFormat" value="NumPy" />
+  </component>
+  <component name="TestRunnerService">
+    <option name="projectConfiguration" value="pytest" />
+    <option name="PROJECT_TEST_RUNNER" value="pytest" />
+  </component>
+</module>
