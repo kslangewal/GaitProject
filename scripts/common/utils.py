@@ -599,15 +599,26 @@ def sample_and_copy_videos(src_dir, dest_dir, sample_num=1000, labels_path="", s
 
 
 # ['dtcarry' 'dtmath' 'dtspeech' 'ec' 'headneck' 'vmax' 'vmin' 'vself']
+# task2idx_dict = {
+#     "Vself": 0,
+#     "Vmin": 1,
+#     "Vmax": 2,
+#     "HeadExtended": 3,
+#     "DT-speech": 4,
+#     "DT-math": 5,
+#     "DT-carry": 6,
+#     "EC": 7
+# }
+
 task2idx_dict = {
-    "Vself": 0,
-    "Vmin": 1,
-    "Vmax": 2,
-    "HeadExtended": 3,
-    "DT-speech": 4,
-    "DT-math": 5,
-    "DT-carry": 6,
-    "EC": 7
+    "vself": 0,
+    "vmin": 1,
+    "vmax": 2,
+    "headneck": 3,
+    "dtspeech": 4,
+    "dtmath": 5,
+    "dtcarry": 6,
+    "ec": 7
 }
 
 idx2task_dict = {v: k for k, v in task2idx_dict.items()}
@@ -624,20 +635,36 @@ def task2idx(task):
 # ['ataxia' 'episodic' 'hs' 'hypokinetic' 'normal' 'nph' 'paretic' 'phobic'
 #  'ppv' 'psychogenic' 'sensory ataxia' 'spastic' 'suspectnph']
 
+# pheno2idx_dict = {
+#     "Anxious":0,
+#     "Antalgic":1,
+#     "Atactic":2,
+#     "Dyskinetic":3,
+#     "Functional":4,
+#     "Healthy":5,
+#     "Hypokinetic-frontal":6,
+#     "Hypokinetic":7,
+#     "Motor-cognitive":8,
+#     "Paretic":9,
+#     "Sensory-atactic":10,
+#     "Spastic":11,
+#     "Spastic-atactic":12
+# }
+
 pheno2idx_dict = {
-    "Anxious":0,
-    "Antalgic":1,
-    "Atactic":2,
-    "Dyskinetic":3,
-    "Functional":4,
-    "Healthy":5,
-    "Hypokinetic-frontal":6,
-    "Hypokinetic":7,
-    "Motor-cognitive":8,
-    "Paretic":9,
-    "Sensory-atactic":10,
-    "Spastic":11,
-    "Spastic-atactic":12
+    "phobic": 0,
+    "psychogenic": 1,
+    "ataxia": 2,
+    "episodic": 3,
+    "nph": 4,
+    "normal": 5,
+    "hs": 6,
+    "hypokinetic": 7,
+    "ppv": 8,
+    "paretic": 9,
+    "sensory ataxia": 10,
+    "spastic": 11,
+    "suspectnph": 12
 }
 
 idx2pheno_dict = {v: k for k, v in pheno2idx_dict.items()}
