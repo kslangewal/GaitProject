@@ -86,9 +86,9 @@ class ConditionalSpatioTemporalVAE(SpatioTemporalVAE):
         recon_motion, recon_pose_z_seq, concat_motion_z = self.decode(
             motion_z, labels
         )  # Convert (m, motion_latent_dim+label_dim) to (m, fea, seq)
-        pred_labels = self.class_net(concat_motion_z)  # Convert (m, motion_latent_dim+label_dim) to (m, n_classes)
+        pred_labels, task_latent = self.class_net(concat_motion_z)  # Convert (m, motion_latent_dim+label_dim) to (m, n_classes)
         return recon_motion, pred_labels, (pose_z_seq, recon_pose_z_seq, pose_mu, pose_logvar), (
-            motion_z, motion_mu, motion_logvar)
+            motion_z, motion_mu, motion_logvar), task_latent
 
     def encode(self, x, labels):
         # Concatenation of input for encoding
@@ -194,15 +194,13 @@ class PhenotypeNet(nn.Module):
 
         motion_z, tasks, tasks_mask, patient_ids, phenos, phenos_mask = inputs
         fingerprint, uni_phenos = self._transform_to_patient_task_means(motion_z, tasks, tasks_mask, patient_ids, phenos, phenos_mask)
-
         out = self.layer_in(fingerprint)
         out = self.layer2(out)
-        out = self.layer_out(out)
-        out = self.sigmoid_layer(out)
+        pheno_latent = self.layer_out(out)
+        out = self.sigmoid_layer(pheno_latent)
+        return out, uni_phenos, pheno_latent
 
-        return out, uni_phenos
     def _transform_to_patient_task_means(self, motion_z, tasks, tasks_mask, patient_ids, phenos, phenos_mask):
-
         # Masking
         true_mask = (tasks_mask == 1) & (np.isnan(patient_ids) == False) & (phenos_mask == 1)
 
@@ -244,7 +242,7 @@ class PhenotypeNet(nn.Module):
             for j in range(self.task_dim):
                 patient_task_mask = (tasks == j) & (patient_ids == patient_ids[p_id])
                 if np.sum(patient_task_mask) > 0:
-                    average_patient_task = torch.mean(numpy_bool_index_select(tensor_arr=sliced_z, mask=(tasks == j),
+                    average_patient_task = torch.mean(numpy_bool_index_select(tensor_arr=sliced_z, mask=((tasks == j) & (patient_ids == patient_ids[p_id])),
                                                                               device=self.device),
                                                       dim=0)
                 else:
@@ -302,10 +300,11 @@ class ConditionalPhenotypeSpatioTemporalVAE(ConditionalSpatioTemporalVAE):
         recon_motion, recon_pose_z_seq, concat_motion_z = self.decode(
             motion_z, labels
         )  # Convert (m, motion_latent_dim+label_dim) to (m, fea, seq)
-        pred_labels = self.class_net(concat_motion_z)  # Convert (m, motion_latent_dim+label_dim) to (m, n_classes)
+        pred_labels, task_latent = self.class_net(concat_motion_z)  # Convert (m, motion_latent_dim+label_dim) to (m, n_classes)
 
         # Identification net
-        pred_identify, labels_identify = self.phenotype_net(motion_z, tasks_np, tasks_mask_np, patient_ids_np, phenos_np, phenos_mask_np)
+        pred_identify, labels_identify, pheno_latent = self.phenotype_net(motion_z, tasks_np, tasks_mask_np, patient_ids_np, phenos_np, phenos_mask_np)
 
         return recon_motion, pred_labels, (pose_z_seq, recon_pose_z_seq, pose_mu, pose_logvar), (
-            motion_z, motion_mu, motion_logvar), (pred_identify, labels_identify)
+            motion_z, motion_mu, motion_logvar), (pred_identify, labels_identify, pheno_latent), task_latent
+

@@ -96,7 +96,7 @@ class BaseContainer:
             self.model, self.optimizer, self.lr_scheduler = self._model_initialization()
         else:
             self.model, self.optimizer, self.lr_scheduler = self._load_model()
-        # self._save_model()  # Enabled only for renewing newly introduced hyper-parameters
+        #self._save_model()  # Enabled only for renewing newly introduced hyper-parameters
 
     def forward_evaluate(self, datagen_tuple):
         self.model.eval()
@@ -266,7 +266,7 @@ class BaseContainer:
     def loss_function(self, model_outputs, inputs_info):
         # Unfolding tuples
         x, nan_masks, tasks, tasks_mask = inputs_info
-        recon_motion, pred_labels, pose_info, motion_info = model_outputs
+        recon_motion, pred_labels, pose_info, motion_info, task_latent = model_outputs
         pose_z_seq, recon_pose_z_seq, pose_mu, pose_logvar = pose_info
         motion_z, motion_mu, motion_logvar = motion_info
 
@@ -598,21 +598,21 @@ class PhenoCondContainer(BaseContainer):
     def loss_function(self, model_outputs, inputs_info):
         # Unfolding tuples
         x, nan_masks, tasks, tasks_mask = inputs_info
-        recon_motion, pred_labels, pose_info, motion_info, phenos_info = model_outputs
+        recon_motion, pred_labels, pose_info, motion_info, phenos_info, task_latent = model_outputs
         pose_z_seq, recon_pose_z_seq, pose_mu, pose_logvar = pose_info
         motion_z, motion_mu, motion_logvar = motion_info
-        phenos_pred, phenos_labels_np = phenos_info
+        phenos_pred, phenos_labels_np, pheno_latent = phenos_info
 
 
         # Posenet kld
         posenet_kld_multiplier = self._get_interval_multiplier(self.posenet_kld)
         posenet_kld_loss_indicator = -0.5 * torch.mean(1 + pose_logvar - pose_mu.pow(2) - pose_logvar.exp())
-        posenet_kld_loss = posenet_kld_multiplier * posenet_kld_loss_indicator
+        posenet_kld_loss = 50 * posenet_kld_multiplier * posenet_kld_loss_indicator
 
         # Motionnet kld
         motionnet_kld_multiplier = self._get_interval_multiplier(self.motionnet_kld)
         motionnet_kld_loss_indicator = -0.5 * torch.mean(1 + motion_logvar - motion_mu.pow(2) - motion_logvar.exp())
-        motionnet_kld_loss = motionnet_kld_multiplier * motionnet_kld_loss_indicator
+        motionnet_kld_loss = 50 * motionnet_kld_multiplier * motionnet_kld_loss_indicator
 
         # Recon loss
         diff = x - recon_motion

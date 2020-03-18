@@ -56,7 +56,6 @@ class OutputSavers:
 
 
     def forward_batch(self):
-
         # Dummy iteration to dump all test data
         for _, test_data in self.data_gen.iterator():
             pass
@@ -79,14 +78,14 @@ class OutputSavers:
             print("forward passing {}".format(identifier))
             data_outputs = model_container.forward_evaluate(test_data)
             if identifier == "B+C+T+P":  # PhenotypeNet has extra columns to store in separate dataframe
-                recon, pred_task, _, motion_info, phenos_info = data_outputs
-                phenos_pred, phenos_labels_np = phenos_info
+                recon, pred_task, _, motion_info, phenos_info, task_latent = data_outputs
+                phenos_pred, phenos_labels_np, pheno_latent = phenos_info
             else:
-                recon, pred_task, _, motion_info = data_outputs
-                phenos_pred, phenos_labels_np = None, None
+                recon, pred_task, _, motion_info, task_latent = data_outputs
+                phenos_pred, phenos_labels_np, pheno_latent = None, None, None
 
             motion_z, _, _ = motion_info
-            data_to_record = (recon, motion_z, pred_task, phenos_pred, phenos_labels_np)
+            data_to_record = (recon, motion_z, pred_task, phenos_pred, phenos_labels_np, pheno_latent, task_latent)
 
             # Store data into self.df_dict aand self.df_pheno_dict in each loop, for creating an overall dataframe later
             # Umap transformation is also done below
@@ -97,17 +96,24 @@ class OutputSavers:
 
     def _record_data_by_identifier(self, identifier, data_to_record):
 
-        (recon, motion_z, pred_task, phenos_pred, phenos_labels_np) = data_to_record
-        recon, motion_z, pred_task = tensor2numpy(recon, motion_z, pred_task)
+        (recon, motion_z, pred_task, phenos_pred, phenos_labels_np, pheno_latent, task_latent) = data_to_record
+        recon, motion_z, pred_task, task_latent = tensor2numpy(recon, motion_z, pred_task, task_latent)
 
         if identifier == "B+C+T":
             self.df_dict["{}_pred_task".format(identifier)] = list(np.argmax(pred_task, axis=1))
+            self.df_dict["{}_task_latent".format(identifier)] = list(task_latent)
+            self.df_dict["{}_tl_umap".format(identifier)] = list(self._umap_transform(task_latent))
 
         elif identifier == "B+C+T+P":
-            phenos_pred = tensor2numpy(phenos_pred)[0]
+            phenos_pred, pheno_latent = tensor2numpy(phenos_pred, pheno_latent)
             self.df_dict["{}_pred_task".format(identifier)] = list(np.argmax(pred_task, axis=1))
+            self.df_dict["{}_task_latent".format(identifier)] = list(task_latent)
+            self.df_dict["{}_tl_umap".format(identifier)] = list(self._umap_transform(task_latent))
             self.df_pheno_dict["pheno_pred"] = list(np.argmax(phenos_pred, axis=1))
             self.df_pheno_dict["pheno_labels"] = list(phenos_labels_np)
+            self.df_pheno_dict["pheno_latent"] = list(pheno_latent)
+            #print('\n\n\n pheno latent: ', list(pheno_latent), '\n\n\n')
+            self.df_pheno_dict["pheno_umap"] = list(self._umap_transform(pheno_latent))
         self.df_dict["{}_recon".format(identifier)] = list(recon)
         self.df_dict["{}_z".format(identifier)] = list(motion_z)  # z = latent vector
         self.df_dict["{}_z_umap".format(identifier)] = list(self._umap_transform(motion_z))

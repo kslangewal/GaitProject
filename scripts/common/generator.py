@@ -172,8 +172,9 @@ class GaitGeneratorFromDFforTemporalVAE(GaitGeneratorFromDF):
         # Construct df filtered out the nan
         self.df_nonan = self._construct_filtered_df()
 
-    def _split_train_test(self):
+        self.pheno_stats = []
 
+    def _split_train_test(self):
         labelled_mask = (self.df["task_masks"] == True)
         df_test = self.df[labelled_mask][0:8000].copy()
         train_index = list(self.df[labelled_mask][8000:].index) + list(self.df[labelled_mask == False].index)
@@ -184,8 +185,9 @@ class GaitGeneratorFromDFforTemporalVAE(GaitGeneratorFromDF):
         selected_df = df_shuffled.iloc[start:stop, :].copy()
 
         if self.gait_print:
-            selected_df = self._complete_gaitprint(selected_df)
-            selected_df_test = self._complete_gaitprint(self.df_test.sample(n=self.mt))
+            selected_df, num_uni_ids_pheno_train = self._complete_gaitprint(selected_df)
+            selected_df_test, num_uni_ids_pheno_test = self._complete_gaitprint(self.df_test.sample(n=self.mt))
+            #self.pheno_stats = self.pheno_stats + num_uni_ids_pheno_train
         else:
             selected_df_test = self.df_test.sample(n=self.mt)
 
@@ -290,6 +292,7 @@ class GaitGeneratorFromDFforTemporalVAE(GaitGeneratorFromDF):
         current_uni_ids = np.unique(df[id_nan_mask]["idpatients"])
 
         indexes_to_add = []
+        sum_uni_ids_with_pheno = 0
         for uni_id in current_uni_ids:
 
             df_patient_tasks = self.df_nonan[self.df_nonan["idpatients"] == uni_id]["tasks"]
@@ -304,10 +307,13 @@ class GaitGeneratorFromDFforTemporalVAE(GaitGeneratorFromDF):
                         continue
                     sampled_add_index = list(np.random.choice(add_indexes, size=1))
                     indexes_to_add += sampled_add_index
+            if list(df[(df["idpatients"] == uni_id)]["pheno_masks"])[0] == True :
+                sum_uni_ids_with_pheno += 1
 
         df_to_append = self.df_nonan.loc[indexes_to_add]
         df = pd.concat([df, df_to_append], axis=0)
-        return df
+
+        return df, sum_uni_ids_with_pheno
 
     def _construct_filtered_df(self):
         mask = (self.df_train["idpatients"].isnull() == False) & (self.df_train["task_masks"] == True)

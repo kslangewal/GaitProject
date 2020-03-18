@@ -94,18 +94,18 @@ def run_train_and_vis_on_stvae():
     df_path = "/mnt/data/full_feas_tasks_phenos_nanMasks_idpatient_leg.pickle"
     training_epoch = 1000
     # Choose the model identifier is one of the four: Thesis_B, Thesis_B+C, Thesis_B+C+T, Thesis_B+C+T+P
-    model_identifier = "Thesis_B"
+    # model_identifier = "Thesis_B"
     # model_identifier = "Thesis_B+C"
     # model_identifier = "Thesis_B+C+T"
-    # model_identifier = "Thesis_B+C+T+P"
+    model_identifier = "Thesis_B+C+T+P"
 
     # =======================================================
     # Based on the model identifier you choose, you will need to the variable identifiers below
-    gaitprint_completion = False  # True for Thesis B+T+C+P, False for Thesis_B, Thesis_B+C, Thesis_B+C+T
-    batch_size = 512  # 64 for Thesis_B+C+T+P, 512 for Thesis_B, Thesis_B+C, Thesis_B+C+T
-    model_class = BaseContainer  # For Thesis_B
+    gaitprint_completion = True  # True for Thesis B+T+C+P, False for Thesis_B, Thesis_B+C, Thesis_B+C+T
+    batch_size = 64  # 64 for Thesis_B+C+T+P, 512 for Thesis_B, Thesis_B+C, Thesis_B+C+T
+    # model_class = BaseContainer  # For Thesis_B
     # model_class = ConditionalContainer  # For Thesis_B+C or Thesis_B+C+T
-    # model_class = PhenoCondContainer  # For Thesis_B+C+T+P
+    model_class = PhenoCondContainer  # For Thesis_B+C+T+P
     # =======================================================
 
     model_container, save_model_path = load_model_container(model_class=model_class,

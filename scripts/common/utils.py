@@ -652,19 +652,19 @@ def task2idx(task):
 # }
 
 pheno2idx_dict = {
-    "phobic": 0,
-    "psychogenic": 1,
-    "ataxia": 2,
-    "episodic": 3,
-    "nph": 4,
-    "normal": 5,
-    "hs": 6,
-    "hypokinetic": 7,
-    "ppv": 8,
-    "paretic": 9,
-    "sensory ataxia": 10,
-    "spastic": 11,
-    "suspectnph": 12
+    "aengstliches Gangbild": 0,
+    "antalgisches Gangbild": 1,
+    "ataktisches Gangbild": 2,
+    "dyskinetisches Gangbild": 3,
+    "funktionelles Gangbild": 4,
+    "gesundes Gangbild": 5,
+    "hypokinetisch-frontales Gangbild": 6,
+    "hypokinetisches Gangbild": 7,
+    "motorisch-kognitives Gangbild": 8,
+    "paretisches Gangbild": 9,
+    "sensorisch-ataktisches Gangbild": 10,
+    "spastisch-ataktisches Gangbild": 11,
+    "spastisch Gangbild": 12
 }
 
 idx2pheno_dict = {v: k for k, v in pheno2idx_dict.items()}

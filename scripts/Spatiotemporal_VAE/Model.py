@@ -223,9 +223,9 @@ class SpatioTemporalVAE(nn.Module):
     def forward(self, x):
         (pose_z_seq, pose_mu, pose_logvar), (motion_z, motion_mu, motion_logvar) = self.encode(x)
         recon_motion, recon_pose_z_seq = self.decode(motion_z)  # Convert (m, motion_latent_dim) to (m, fea, seq)
-        pred_labels = self.class_net(motion_z)  # Convert (m, motion_latent_dim) to (m, n_classes)
+        pred_labels, task_latent = self.class_net(motion_z)  # Convert (m, motion_latent_dim) to (m, n_classes)
         return recon_motion, pred_labels, (pose_z_seq, recon_pose_z_seq, pose_mu, pose_logvar), (
-        motion_z, motion_mu, motion_logvar)
+        motion_z, motion_mu, motion_logvar), task_latent
 
     def encode(self, x):
         out = self.transpose_flatten(x)  # Convert (m, fea, seq) to (m * seq, fea)
@@ -571,9 +571,9 @@ class TaskNet(nn.Module):
         self.sigmoid_layer = nn.Sigmoid()
 
     def forward(self, x):
-        out = self.encode(x)
-        out = self.sigmoid_layer(out)
-        return out
+        task_latent = self.encode(x)
+        out = self.sigmoid_layer(task_latent)
+        return out, task_latent
 
     def encode(self, x):
 
