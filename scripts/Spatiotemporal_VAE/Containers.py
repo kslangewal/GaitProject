@@ -144,6 +144,7 @@ class BaseContainer:
                 self._plot_loss()
 
         except KeyboardInterrupt as e:
+            torch.cuda.empty_cache()
             self._save_model()
             raise e
 
@@ -595,6 +596,47 @@ class PhenoCondContainer(BaseContainer):
         input_info = (x, nan_masks, tasks, tasks_mask)
         return input_data, input_info
 
+    def _get_entropy(self, log_density):
+        N = log_density.shape[1]
+        # max_arr is added for numerical stability
+        max_arr, _ = torch.max(log_density, dim=1, keepdim=True)
+        sum_arr = torch.sum(torch.exp(log_density - max_arr), dim=1)
+        max_arr = max_arr.squeeze(1)
+        entropy = max_arr + torch.log(sum_arr) - np.log(N * self.data_gen.num_rows)
+        return entropy
+
+    def _get_decomposed_kld(self, motion_z, motion_mu, motion_logvar, beta):
+        N = motion_z.shape[0]
+        K = motion_z.shape[1]
+
+        logvar_expanded = motion_logvar.view(1, N, K)
+        mu_expanded = motion_mu.view(1, N, K)
+        samples_expanded = motion_z.view(N, 1, K)
+        c_expanded = np.log(2 * np.pi) * torch.ones((N, 1, K)).cuda()
+
+        # get log density assuming z is gaussian
+        tmp = (samples_expanded - mu_expanded) * torch.exp(-0.5*logvar_expanded)
+        log_density_z_j = -0.5 * (tmp * tmp + logvar_expanded + c_expanded)
+        log_density_z = torch.sum(log_density_z_j, dim=2)
+
+        # Get entropies
+        marginal_entropy = torch.sum(self._get_entropy(log_density_z_j), dim=1)
+        joint_entropy = self._get_entropy(log_density_z)
+
+        # Get nlogpz for the dimwise kld, assuming prior N(0,1)
+        nlogpz = torch.sum(-0.5 * (motion_z.pow(2) + np.log(2 * np.pi)), dim=1)
+
+        # Get nlogqz_condx for the mutual information term
+        tmp = (motion_z - motion_mu) * torch.exp(-0.5 * motion_logvar)
+        nlogqz_condx = torch.sum(-0.5 * (tmp * tmp + motion_logvar + np.log(2 * np.pi)), dim=1)
+
+        mutual_information = nlogqz_condx - joint_entropy
+        total_correlation = joint_entropy - marginal_entropy
+        dimwise_kld = marginal_entropy - nlogpz
+
+        decomposed_kld = torch.mean(mutual_information + beta * total_correlation + dimwise_kld)
+        return decomposed_kld
+
     def loss_function(self, model_outputs, inputs_info):
         # Unfolding tuples
         x, nan_masks, tasks, tasks_mask = inputs_info
@@ -603,16 +645,20 @@ class PhenoCondContainer(BaseContainer):
         motion_z, motion_mu, motion_logvar = motion_info
         phenos_pred, phenos_labels_np, pheno_latent = phenos_info
 
-
         # Posenet kld
         posenet_kld_multiplier = self._get_interval_multiplier(self.posenet_kld)
         posenet_kld_loss_indicator = -0.5 * torch.mean(1 + pose_logvar - pose_mu.pow(2) - pose_logvar.exp())
-        posenet_kld_loss = 50 * posenet_kld_multiplier * posenet_kld_loss_indicator
+        posenet_kld_loss = 20 * posenet_kld_multiplier * posenet_kld_loss_indicator
 
         # Motionnet kld
+        motion_decomposed_kld = self._get_decomposed_kld(motion_z, motion_mu, motion_logvar, 10)
         motionnet_kld_multiplier = self._get_interval_multiplier(self.motionnet_kld)
         motionnet_kld_loss_indicator = -0.5 * torch.mean(1 + motion_logvar - motion_mu.pow(2) - motion_logvar.exp())
-        motionnet_kld_loss = 50 * motionnet_kld_multiplier * motionnet_kld_loss_indicator
+        # motionnet_kld_loss = 20 * motionnet_kld_multiplier * motionnet_kld_loss_indicator
+        print('Original KLD: ', motionnet_kld_loss_indicator)
+        print('BetaTCVAE: ', motion_decomposed_kld)
+        motionnet_kld_loss = motionnet_kld_multiplier * 0.00008 * (motion_decomposed_kld)
+        print('Final KLD: ', motionnet_kld_loss)
 
         # Recon loss
         diff = x - recon_motion
