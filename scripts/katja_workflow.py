@@ -52,7 +52,7 @@
 # scr_keyps_dir = "/mnt/data/preprocessed_keypoints"
 # labels_path = "/mnt/data/labels/fn_tasks_phenos_validated_rename.pkl"
 # df_save_path = "/mnt/data/full_feas_tasks_phenos_nanMasks_idpatient_leg.pickle"
-# minimum_sequence_window = 128  # Predefined fixed video segment length
+# minimum_sequence_window = 144  # Predefined fixed video segment length
 # extractor = FeatureExtractorForODE(scr_keyps_dir=scr_keyps_dir,
 #                                    labels_path=labels_path,
 #                                    df_save_path=df_save_path)
@@ -63,14 +63,14 @@
 # This section trains the models of "Thesis_B", "Thesis_B+C", "Thesis_B+C+T", "Thesis_B+C+T+P"
 # Detailed configurations can be found in the function thesis_analysis_script.run_save_model_outputs()
 # Environment $ nvidia-docker run --rm -it -e NVIDIA_VISIBLE_DEVICES=0 -v /data/hoi/gait_analysis:/mnt yyhhoi/neuro:3 bash
-from thesis_analysis_script import run_train_and_vis_on_stvae
-run_train_and_vis_on_stvae()
+# from thesis_analysis_script import run_train_and_vis_on_stvae
+# run_train_and_vis_on_stvae()
 
 
 # %% ========= Step 5: Infer with trained models and save results for analysis + visualization ============
 # Environment $ nvidia-docker run --rm -it -e NVIDIA_VISIBLE_DEVICES=0 -v /data/hoi/gait_analysis:/mnt yyhhoi/neuro:3 bash
-# from thesis_analysis_script import run_save_model_outputs
-# run_save_model_outputs()
+from thesis_analysis_script import run_save_model_outputs
+run_save_model_outputs()
 
 
 # %% ========= Step 6: Data analysis + visualization ============

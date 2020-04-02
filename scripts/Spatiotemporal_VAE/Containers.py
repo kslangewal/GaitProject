@@ -25,6 +25,7 @@ class BaseContainer:
                  data_gen,
                  fea_dim=50,
                  seq_dim=128,
+                 fut_dim=16,
                  conditional_label_dim=0,
                  posenet_latent_dim=10,
                  posenet_dropout_p=0,
@@ -34,6 +35,8 @@ class BaseContainer:
                  motionnet_dropout_p=0,
                  motionnet_kld=None,
                  recon_weight=1,
+                 fut_weight=1,
+                 futnet_hidden_dim=512,
                  pose_latent_gradient=0,
                  recon_gradient=0,
                  classification_weight=0,
@@ -55,6 +58,7 @@ class BaseContainer:
         self.data_gen = data_gen
         self.fea_dim = fea_dim
         self.seq_dim = seq_dim
+        self.fut_dim = fut_dim
         self.conditional_label_dim = conditional_label_dim
         self.init_lr = init_lr
         self.lr_milestones = lr_milestones
@@ -65,6 +69,7 @@ class BaseContainer:
         self.motionnet_dropout_p = motionnet_dropout_p
         self.motionnet_hidden_dim = motionnet_hidden_dim
         self.recon_weight = recon_weight
+        self.fut_weight = fut_weight
         self.pose_latent_gradient = pose_latent_gradient
         self.recon_gradient = recon_gradient
         self.classification_weight = classification_weight
@@ -77,6 +82,7 @@ class BaseContainer:
         self.loss_meter = MeterAssembly(
             "train_total_loss",
             "train_recon",
+            "train_fut",
             "train_pose_kld",
             "train_motion_kld",
             "train_recon_grad",
@@ -84,6 +90,7 @@ class BaseContainer:
             "train_acc",
             "test_total_loss",
             "test_recon",
+            "test_fut",
             "test_pose_kld",
             "test_motion_kld",
             "test_recon_grad",
@@ -150,12 +157,13 @@ class BaseContainer:
 
     def _update_loss_meters(self, total_loss, indicators, train):
 
-        recon, posekld, motionkld, recongrad, latentgrad, acc = indicators
+        recon, posekld, motionkld, recongrad, latentgrad, acc, fut_predic = indicators
 
         if train:
             self.loss_meter.update_meters(
                 train_total_loss=total_loss.item(),
                 train_recon=recon.item(),
+                train_fut=fut_predic.item(),
                 train_pose_kld=posekld.item(),
                 train_motion_kld=motionkld.item(),
                 train_recon_grad=recongrad.item(),
@@ -166,6 +174,7 @@ class BaseContainer:
             self.loss_meter.update_meters(
                 test_total_loss=total_loss.item(),
                 test_recon=recon.item(),
+                test_fut=fut_predic.item(),
                 test_pose_kld=posekld.item(),
                 test_motion_kld=motionkld.item(),
                 test_recon_grad=recongrad.item(),
@@ -175,7 +184,7 @@ class BaseContainer:
 
     def _print_for_each_iter(self, n_epochs, iter_idx, within_iter=True):
         # Print Info
-        print("\r Epoch %d/%d at iter %d/%d | Recon = %0.8f, %0.8f | KLD = %0.8f, %0.8f | Task Acc = %0.3f, %0.3f" % (
+        print("\r Epoch %d/%d at iter %d/%d | Recon = %0.8f, %0.8f | KLD = %0.8f, %0.8f | Task Acc = %0.3f, %0.3f | Future=%0.8f, %0.8f" % (
             self.epoch,
             n_epochs,
             iter_idx,
@@ -186,6 +195,8 @@ class BaseContainer:
             self.loss_meter.get_meter_avg()["test_motion_kld"],
             self.loss_meter.get_meter_avg()["train_acc"],
             self.loss_meter.get_meter_avg()["test_acc"],
+            self.loss_meter.get_meter_avg()["train_fut"],
+            self.loss_meter.get_meter_avg()["test_fut"]
         ), flush=True, end=""
               )
         if not within_iter:
@@ -206,6 +217,7 @@ class BaseContainer:
         self.epoch = len(self.loss_meter.get_recorders()["train_total_loss"])
         self.fea_dim = checkpoint['fea_dim']
         self.seq_dim = checkpoint['seq_dim']
+        self.fut_dim = checkpoint['fut_dim']
         self.conditional_label_dim = checkpoint['conditional_label_dim']
         self.init_lr = checkpoint['init_lr']
         self.lr_milestones = checkpoint['lr_milestones']
@@ -216,6 +228,7 @@ class BaseContainer:
         self.motionnet_dropout_p = checkpoint['motionnet_dropout_p']
         self.motionnet_hidden_dim = checkpoint['motionnet_hidden_dim']
         self.recon_weight = checkpoint['recon_weight']
+        self.fut_weight = checkpoint['fut_weight']
         self.pose_latent_gradient = checkpoint['pose_latent_gradient']
         self.recon_gradient = checkpoint['recon_gradient']
         self.classification_weight = checkpoint['classification_weight']
@@ -242,6 +255,7 @@ class BaseContainer:
                 'loss_meter': self.loss_meter,
                 'fea_dim': self.fea_dim,
                 'seq_dim': self.seq_dim,
+                'fut_dim': self.fut_dim,
                 'conditional_label_dim': self.conditional_label_dim,
                 'init_lr': self.init_lr,
                 'lr_milestones': self.lr_milestones,
@@ -252,6 +266,7 @@ class BaseContainer:
                 'motionnet_dropout_p': self.motionnet_dropout_p,
                 'motionnet_hidden_dim': self.motionnet_hidden_dim,
                 'recon_weight': self.recon_weight,
+                'fut_weight': self.fut_weight,
                 'pose_latent_gradient': self.pose_latent_gradient,
                 'recon_gradient': self.recon_gradient,
                 'classification_weight': self.classification_weight,
@@ -266,8 +281,8 @@ class BaseContainer:
 
     def loss_function(self, model_outputs, inputs_info):
         # Unfolding tuples
-        x, nan_masks, tasks, tasks_mask = inputs_info
-        recon_motion, pred_labels, pose_info, motion_info, task_latent = model_outputs
+        x, nan_masks, fut, fut_mask, tasks, tasks_mask = inputs_info
+        recon_motion, pred_labels, recon_fut, pose_info, motion_info, task_latent = model_outputs
         pose_z_seq, recon_pose_z_seq, pose_mu, pose_logvar = pose_info
         motion_z, motion_mu, motion_logvar = motion_info
 
@@ -285,6 +300,11 @@ class BaseContainer:
         diff = x - recon_motion
         recon_loss_indicator = torch.mean(nan_masks * (diff ** 2))  # For evaluation
         recon_loss = self.recon_weight * recon_loss_indicator  # For error propagation
+
+        # Future prediction loss
+        diff = fut - recon_fut
+        fut_predic_loss_indicator = torch.mean(fut_mask * (diff ** 2))
+        fut_predic_loss = self.fut_weight * fut_predic_loss_indicator
 
         # Latent recon loss
         squared_pose_z_seq = ((pose_z_seq - recon_pose_z_seq) ** 2)
@@ -307,16 +327,18 @@ class BaseContainer:
         ## KLD has to be set to 0 manually if it is turned off, otherwise it is not numerically stable
         motionnet_kld_loss = 0 if self.motionnet_kld is None else motionnet_kld_loss
         posenet_kld_loss = 0 if self.posenet_kld is None else posenet_kld_loss
-        loss = recon_loss + posenet_kld_loss + motionnet_kld_loss + recon_grad_loss + pose_latent_grad_loss + recon_latent_loss + class_loss
+        loss = recon_loss + posenet_kld_loss + motionnet_kld_loss + recon_grad_loss + pose_latent_grad_loss + \
+               recon_latent_loss + class_loss + fut_predic_loss_indicator
 
         return loss, (
             recon_loss_indicator, posenet_kld_loss_indicator, motionnet_kld_loss_indicator, recon_grad_loss_indicator,
-            pose_latent_grad_loss_indicator, acc)
+            pose_latent_grad_loss_indicator, acc, fut_predic_loss_indicator)
 
     def _model_initialization(self):
         model = SpatioTemporalVAE(
             fea_dim=self.fea_dim,
             seq_dim=self.seq_dim,
+            fut_dim=self.fut_dim,
             posenet_latent_dim=self.posenet_latent_dim,
             posenet_dropout_p=self.posenet_dropout_p,
             posenet_kld=self.posenet_kld_bool,
@@ -339,6 +361,7 @@ class BaseContainer:
             "train_recon_grad",
             "train_latent_grad",
             "train_acc",
+            "train_fut",
         '''
 
         def plot_ax_train_test(ax, x_length, windows, recorders, key_suffix, train_ylabel, test_ylabel):
@@ -358,10 +381,11 @@ class BaseContainer:
             plot_ax_train_test(axes[0, 1], x_length, windows, recorders, "recon_grad", "", "Test recon_grad")
             plot_ax_train_test(axes[1, 1], x_length, windows, recorders, "latent_grad", "", "Test latent_grad")
             plot_ax_train_test(axes[2, 1], x_length, windows, recorders, "acc", "", "Test acc")
+            plot_ax_train_test(axes[0, 2], x_length, windows, recorders, "fut", "Train Future MSE", "")
 
         epoch_windows = 100
         recorders = self.loss_meter.get_recorders()
-        fig, ax = plt.subplots(3, 2, figsize=(16, 8))
+        fig, ax = plt.subplots(3, 3, figsize=(16, 8))
 
         # Restrict to show only recent epochs
         if self.epoch > epoch_windows:
@@ -374,17 +398,18 @@ class BaseContainer:
 
     def _convert_input_data(self, data_tuple):
         # Unfolding
-        x, nan_masks, tasks, tasks_mask, _, _, _, _, _, _ = data_tuple
+        x, nan_masks, fut_np, fut_mask_np, tasks, tasks_mask, _, _, _, _, _, _ = data_tuple
 
         # Convert numpy to torch.tensor
-        x = numpy2tensor(self.device, x)[0]
+        x, fut = numpy2tensor(self.device, x, fut_np)
         tasks = torch.from_numpy(tasks).long().to(self.device)
         tasks_mask = torch.from_numpy(tasks_mask * 1 + 1e-5).float().to(self.device)
         nan_masks = torch.from_numpy(nan_masks * 1 + 1e-5).float().to(self.device)
+        fut_mask = torch.from_numpy(fut_mask_np * 1 + 1e-5).float().to(self.device)
 
         # Construct tuple
-        input_data = (x,)
-        input_info = (x, nan_masks, tasks, tasks_mask)
+        input_data = (x, fut_np, fut_mask_np)
+        input_info = (x, nan_masks, fut, fut_mask, tasks, tasks_mask)
         return input_data, input_info
 
     def _get_interval_multiplier(self, quantity_arg):
@@ -454,6 +479,7 @@ class ConditionalContainer(BaseContainer):
         model = ConditionalSpatioTemporalVAE(
             fea_dim=self.fea_dim,
             seq_dim=self.seq_dim,
+            fut_dim=self.fut_dim,
             posenet_latent_dim=self.posenet_latent_dim,
             posenet_dropout_p=self.posenet_dropout_p,
             posenet_kld=self.posenet_kld_bool,
@@ -470,20 +496,22 @@ class ConditionalContainer(BaseContainer):
 
     def _convert_input_data(self, data_tuple):
         # Unfolding
-        x, nan_masks, tasks, tasks_mask, _, _, towards, _, _, _ = data_tuple
+        x, nan_masks, fut_np, fut_mask_np, tasks, tasks_mask, _, _, towards, _, _, _ = data_tuple
 
         # Convert numpy to torch.tensor
         tasks = torch.from_numpy(tasks).long().to(self.device)
         tasks_mask = torch.from_numpy(tasks_mask * 1 + 1e-5).float().to(self.device)
         nan_masks = torch.from_numpy(nan_masks * 1 + 1e-5).float().to(self.device)
-        x, towards = numpy2tensor(self.device,
+        fut_mask = torch.from_numpy(fut_mask_np * 1 + 1e-5).float().to(self.device)
+        x, fut, towards = numpy2tensor(self.device,
                                x,
+                               fut_np,
                                expand1darr(towards.astype(np.int64), 3, self.seq_dim)
                                )
 
         # Construct tuple
-        input_data = (x, towards)
-        input_info = (x, nan_masks, tasks, tasks_mask)
+        input_data = (x, towards, fut_np, fut_mask_np)
+        input_info = (x, nan_masks, fut, fut_mask, tasks, tasks_mask)
         return input_data, input_info
 
 class PhenoCondContainer(BaseContainer):
@@ -491,6 +519,7 @@ class PhenoCondContainer(BaseContainer):
                  data_gen,
                  fea_dim=50,
                  seq_dim=128,
+                 fut_dim=16,
                  conditional_label_dim=0,
                  num_phenos=13,
                  posenet_latent_dim=10,
@@ -501,6 +530,8 @@ class PhenoCondContainer(BaseContainer):
                  motionnet_dropout_p=0,
                  motionnet_kld=None,
                  recon_weight=1,
+                 fut_weight=1,
+                 futnet_hidden_dim=512,
                  pose_latent_gradient=0,
                  recon_gradient=0,
                  classification_weight=0,
@@ -516,6 +547,7 @@ class PhenoCondContainer(BaseContainer):
             data_gen=data_gen,
             fea_dim=fea_dim,
             seq_dim=seq_dim,
+            fut_dim=fut_dim,
             conditional_label_dim=conditional_label_dim,
             posenet_latent_dim=posenet_latent_dim,
             posenet_dropout_p=posenet_dropout_p,
@@ -525,6 +557,8 @@ class PhenoCondContainer(BaseContainer):
             motionnet_dropout_p=motionnet_dropout_p,
             motionnet_kld=motionnet_kld,
             recon_weight=recon_weight,
+            fut_weight=fut_weight,
+            futnet_hidden_dim=futnet_hidden_dim,
             pose_latent_gradient=pose_latent_gradient,
             recon_gradient=recon_gradient,
             classification_weight=classification_weight,
@@ -539,6 +573,7 @@ class PhenoCondContainer(BaseContainer):
         self.loss_meter = MeterAssembly(
             "train_total_loss",
             "train_recon",
+            "train_fut",
             "train_pose_kld",
             "train_motion_kld",
             "train_recon_grad",
@@ -548,6 +583,7 @@ class PhenoCondContainer(BaseContainer):
             "train_phenos_acc",
             "test_total_loss",
             "test_recon",
+            "test_fut",
             "test_pose_kld",
             "test_motion_kld",
             "test_recon_grad",
@@ -561,6 +597,7 @@ class PhenoCondContainer(BaseContainer):
         model = ConditionalPhenotypeSpatioTemporalVAE(
             fea_dim=self.fea_dim,
             seq_dim=self.seq_dim,
+            fut_dim=self.fut_dim,
             posenet_latent_dim=self.posenet_latent_dim,
             posenet_dropout_p=self.posenet_dropout_p,
             posenet_kld=self.posenet_kld_bool,
@@ -580,20 +617,22 @@ class PhenoCondContainer(BaseContainer):
 
     def _convert_input_data(self, data_tuple):
         # Unfolding
-        x, nan_masks, tasks_np, tasks_mask_np, phenos_np, phenos_mask_np, towards, _, _, idpatients_np = data_tuple
+        x, nan_masks, fut_np, fut_mask_np, tasks_np, tasks_mask_np, phenos_np, phenos_mask_np, towards, _, _, idpatients_np = data_tuple
 
         # Convert numpy to torch.tensor
         tasks = torch.from_numpy(tasks_np).long().to(self.device)
         tasks_mask = torch.from_numpy(tasks_mask_np * 1 + 1e-5).float().to(self.device)
         nan_masks = torch.from_numpy(nan_masks * 1 + 1e-5).float().to(self.device)
-        x, towards = numpy2tensor(self.device,
-                               x,
-                               expand1darr(towards.astype(np.int64), 3, self.seq_dim)
-                               )
+        fut_mask = torch.from_numpy(fut_mask_np * 1 + 1e-5).float().to(self.device)
+        x, fut, towards = numpy2tensor(self.device,
+                                x,
+                                fut_np,
+                                expand1darr(towards.astype(np.int64), 3, self.seq_dim)
+                                )
 
         # Construct tuple
-        input_data = (x, towards, tasks_np, tasks_mask_np, idpatients_np, phenos_np, phenos_mask_np)
-        input_info = (x, nan_masks, tasks, tasks_mask)
+        input_data = (x, towards, fut_np, fut_mask_np, tasks_np, tasks_mask_np, idpatients_np, phenos_np, phenos_mask_np)
+        input_info = (x, nan_masks, fut, fut_mask, tasks, tasks_mask)
         return input_data, input_info
 
     def _get_entropy(self, log_density):
@@ -604,6 +643,7 @@ class PhenoCondContainer(BaseContainer):
         max_arr = max_arr.squeeze(1)
         entropy = max_arr + torch.log(sum_arr) - np.log(N * self.data_gen.num_rows)
         return entropy
+
 
     def _get_decomposed_kld(self, motion_z, motion_mu, motion_logvar, beta):
         N = motion_z.shape[0]
@@ -620,27 +660,26 @@ class PhenoCondContainer(BaseContainer):
         log_density_z = torch.sum(log_density_z_j, dim=2)
 
         # Get entropies
-        marginal_entropy = torch.sum(self._get_entropy(log_density_z_j), dim=1)
+        marginal_entropy = self._get_entropy(log_density_z_j)
         joint_entropy = self._get_entropy(log_density_z)
-
-        # Get nlogpz for the dimwise kld, assuming prior N(0,1)
-        nlogpz = torch.sum(-0.5 * (motion_z.pow(2) + np.log(2 * np.pi)), dim=1)
 
         # Get nlogqz_condx for the mutual information term
         tmp = (motion_z - motion_mu) * torch.exp(-0.5 * motion_logvar)
         nlogqz_condx = torch.sum(-0.5 * (tmp * tmp + motion_logvar + np.log(2 * np.pi)), dim=1)
 
-        mutual_information = nlogqz_condx - joint_entropy
-        total_correlation = joint_entropy - marginal_entropy
-        dimwise_kld = marginal_entropy - nlogpz
+        # Get nlogpz assuming prior N(0,1)
+        nlogpz = -0.5 * (motion_z.pow(2) + np.log(2 * np.pi))
 
-        decomposed_kld = torch.mean(mutual_information + beta * total_correlation + dimwise_kld)
+        mutual_information = nlogqz_condx - joint_entropy
+        total_correlation = joint_entropy - torch.sum(marginal_entropy, dim=1)
+        dimwise_kld = marginal_entropy - nlogpz
+        decomposed_kld = torch.mean(mutual_information + beta * total_correlation + torch.sum(dimwise_kld, dim=1))
         return decomposed_kld
 
     def loss_function(self, model_outputs, inputs_info):
         # Unfolding tuples
-        x, nan_masks, tasks, tasks_mask = inputs_info
-        recon_motion, pred_labels, pose_info, motion_info, phenos_info, task_latent = model_outputs
+        x, nan_masks, fut, fut_mask, tasks, tasks_mask = inputs_info
+        recon_motion, pred_labels, recon_fut, pose_info, motion_info, phenos_info, task_latent = model_outputs
         pose_z_seq, recon_pose_z_seq, pose_mu, pose_logvar = pose_info
         motion_z, motion_mu, motion_logvar = motion_info
         phenos_pred, phenos_labels_np, pheno_latent = phenos_info
@@ -651,19 +690,21 @@ class PhenoCondContainer(BaseContainer):
         posenet_kld_loss = 20 * posenet_kld_multiplier * posenet_kld_loss_indicator
 
         # Motionnet kld
-        motion_decomposed_kld = self._get_decomposed_kld(motion_z, motion_mu, motion_logvar, 10)
+        motion_decomposed_kld = self._get_decomposed_kld(motion_z, motion_mu, motion_logvar, 5)
         motionnet_kld_multiplier = self._get_interval_multiplier(self.motionnet_kld)
         motionnet_kld_loss_indicator = -0.5 * torch.mean(1 + motion_logvar - motion_mu.pow(2) - motion_logvar.exp())
-        # motionnet_kld_loss = 20 * motionnet_kld_multiplier * motionnet_kld_loss_indicator
-        print('Original KLD: ', motionnet_kld_loss_indicator)
-        print('BetaTCVAE: ', motion_decomposed_kld)
-        motionnet_kld_loss = motionnet_kld_multiplier * 0.00008 * (motion_decomposed_kld)
-        print('Final KLD: ', motionnet_kld_loss)
+        #motionnet_kld_loss = motionnet_kld_multiplier * motionnet_kld_loss_indicator
+        motionnet_kld_loss = motionnet_kld_multiplier * 0.00004 * (motion_decomposed_kld)
 
         # Recon loss
         diff = x - recon_motion
         recon_loss_indicator = torch.mean(nan_masks * (diff ** 2))  # For evaluation
         recon_loss = self.recon_weight * recon_loss_indicator  # For error propagation
+
+        # Future prediction loss
+        diff = fut - recon_fut
+        fut_predic_loss_indicator = torch.mean(fut_mask * (diff ** 2))
+        fut_predic_loss = self.fut_weight * fut_predic_loss_indicator
 
         # Latent recon loss
         squared_pose_z_seq = ((pose_z_seq - recon_pose_z_seq) ** 2)
@@ -692,44 +733,46 @@ class PhenoCondContainer(BaseContainer):
         motionnet_kld_loss = 0 if self.motionnet_kld is None else motionnet_kld_loss
         posenet_kld_loss = 0 if self.posenet_kld is None else posenet_kld_loss
         loss = recon_loss + posenet_kld_loss + motionnet_kld_loss + recon_grad_loss + pose_latent_grad_loss + \
-               recon_latent_loss + class_loss + phenos_loss
+               recon_latent_loss + class_loss + phenos_loss + fut_predic_loss
 
         return loss, (
             recon_loss_indicator, posenet_kld_loss_indicator, motionnet_kld_loss_indicator, recon_grad_loss_indicator,
-            pose_latent_grad_loss_indicator, acc, phenos_loss_indicator, phenos_acc)
+            pose_latent_grad_loss_indicator, acc, phenos_loss_indicator, phenos_acc, fut_predic_loss_indicator)
 
     def _update_loss_meters(self, total_loss, indicators, train):
 
-        recon, posekld, motionkld, recongrad, latentgrad, acc, phenos_loss, phenos_acc = indicators
+        recon, posekld, motionkld, recongrad, latentgrad, acc, phenos_loss, phenos_acc, fut_predic = indicators
 
         if train:
             self.loss_meter.update_meters(
                 train_total_loss=total_loss.item(),
                 train_recon=recon.item(),
+                train_fut=fut_predic.item(),
                 train_pose_kld=posekld.item(),
                 train_motion_kld=motionkld.item(),
                 train_recon_grad=recongrad.item(),
                 train_latent_grad=latentgrad.item(),
                 train_acc=acc,
                 train_phenos_loss=phenos_loss.item(),
-                train_phenos_acc=phenos_acc,
+                train_phenos_acc=phenos_acc
             )
         else:
             self.loss_meter.update_meters(
                 test_total_loss=total_loss.item(),
                 test_recon=recon.item(),
+                test_fut=fut_predic.item(),
                 test_pose_kld=posekld.item(),
                 test_motion_kld=motionkld.item(),
                 test_recon_grad=recongrad.item(),
                 test_latent_grad=latentgrad.item(),
                 test_acc=acc,
                 test_phenos_loss=phenos_loss.item(),
-                test_phenos_acc=phenos_acc,
+                test_phenos_acc=phenos_acc
             )
 
     def _print_for_each_iter(self, n_epochs, iter_idx, within_iter=True):
         # Print Info
-        print("\rE %d/%d I %d/%d|Recon=%0.8f, %0.8f|KLD=%0.8f, %0.8f|Task=%0.3f, %0.3f|Phenos=%0.3f, %0.3f" % (
+        print("\rE %d/%d I %d/%d|Recon=%0.8f, %0.8f|KLD=%0.8f, %0.8f|Task=%0.3f, %0.3f|Phenos=%0.3f, %0.3f|Future=%0.8f, %0.8f" % (
             self.epoch,
             n_epochs,
             iter_idx,
@@ -741,7 +784,9 @@ class PhenoCondContainer(BaseContainer):
             self.loss_meter.get_meter_avg()["train_acc"],
             self.loss_meter.get_meter_avg()["test_acc"],
             self.loss_meter.get_meter_avg()["train_phenos_acc"],
-            self.loss_meter.get_meter_avg()["test_phenos_acc"]
+            self.loss_meter.get_meter_avg()["test_phenos_acc"],
+            self.loss_meter.get_meter_avg()["train_fut"],
+            self.loss_meter.get_meter_avg()["test_fut"]
         ), flush=True, end=""
               )
         if not within_iter:

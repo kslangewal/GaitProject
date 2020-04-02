@@ -192,28 +192,30 @@ class GaitGeneratorFromDFforTemporalVAE(GaitGeneratorFromDF):
             selected_df_test = self.df_test.sample(n=self.mt)
 
         # Retrieve train data
-        x_train_info, task_train_info, pheno_train_info, towards_train, leg_train_info, idpatients = self._loop_for_array_construction(
+        x_train_info, fut_train_info, task_train_info, pheno_train_info, towards_train, leg_train_info, idpatients = self._loop_for_array_construction(
             selected_df,
             selected_df.shape[0])
         x_train, x_train_masks = x_train_info
+        fut_train, fut_train_masks = fut_train_info
         task_train, task_train_masks = task_train_info
         pheno_train, pheno_train_masks = pheno_train_info
         leg_train, leg_train_masks = leg_train_info
 
         # Retrieve test data
-        x_test_info, task_test_info, pheno_test_info, towards_test, leg_test_info, idpatients_test = self._loop_for_array_construction(
+        x_test_info, fut_test_info, task_test_info, pheno_test_info, towards_test, leg_test_info, idpatients_test = self._loop_for_array_construction(
             selected_df_test,
             selected_df_test.shape[0])
 
         x_test, x_test_masks = x_test_info
+        fut_test, fut_test_masks = fut_test_info
         task_test, task_test_masks = task_test_info
         pheno_test, pheno_test_masks = pheno_test_info
         leg_test, leg_test_masks = leg_test_info
 
         # Combine as output
-        train_info = (x_train, x_train_masks, task_train, task_train_masks, pheno_train, pheno_train_masks,
+        train_info = (x_train, x_train_masks, fut_train, fut_train_masks, task_train, task_train_masks, pheno_train, pheno_train_masks,
                       towards_train, leg_train, leg_train_masks, idpatients)
-        test_info = (x_test, x_test_masks, task_test, task_test_masks, pheno_test, pheno_test_masks,
+        test_info = (x_test, x_test_masks, fut_test, fut_test_masks, task_test, task_test_masks, pheno_test, pheno_test_masks,
                      towards_test, leg_test, leg_test_masks, idpatients_test)
 
         return train_info, test_info
@@ -254,11 +256,16 @@ class GaitGeneratorFromDFforTemporalVAE(GaitGeneratorFromDF):
         features_arr = np.zeros((num_samples, self.total_fea_dims, self.n))
         fea_masks_arr = np.zeros(features_arr.shape)
 
+        fut_features_arr = np.zeros((num_samples, self.total_fea_dims, 16))
+        fut_fea_masks_arr = np.zeros(fut_features_arr.shape)
+
         for i in range(num_samples):
             # Slice to the receptive window
-            slice_start = np.random.choice(fea_vec[i,].shape[0] - self.n)
+            slice_start = np.random.choice(fea_vec[i,].shape[0] - self.n - 16)
             fea_vec_sliced = fea_vec[i][slice_start:slice_start + self.n, :, :]
             fea_mask_vec_sliced = fea_mask_vec[i][slice_start:slice_start + self.n, :, :]
+            fut_fea_vec_sliced = fea_vec[i][slice_start + self.n:slice_start + self.n + 16, :, :]
+            fut_fea_mask_vec_sliced = fea_mask_vec[i][slice_start + self.n:slice_start + self.n + 16, :, :]
 
             # Construct output
             x_end_idx, y_end_idx = self.keyps_x_dims, self.keyps_x_dims + self.keyps_y_dims
@@ -266,7 +273,13 @@ class GaitGeneratorFromDFforTemporalVAE(GaitGeneratorFromDF):
             features_arr[i, x_end_idx:y_end_idx, :] = fea_vec_sliced[:, :, 1].T  # Store y-coordinates
             fea_masks_arr[i, 0:x_end_idx, :] = fea_mask_vec_sliced[:, :, 0].T  # Store x-coordinates
             fea_masks_arr[i, x_end_idx:y_end_idx, :] = fea_mask_vec_sliced[:, :, 1].T  # Store y-coordinates
-        return (features_arr, fea_masks_arr), (task, task_mask), (pheno, pheno_mask), towards, \
+
+            fut_features_arr[i, 0:x_end_idx, :] = fut_fea_vec_sliced[:, :, 0].T
+            fut_features_arr[i, x_end_idx:y_end_idx, :] = fut_fea_vec_sliced[:, :, 1].T
+            fut_fea_masks_arr[i, 0:x_end_idx, :] = fut_fea_mask_vec_sliced[:, :, 0].T
+            fut_fea_masks_arr[i, x_end_idx:y_end_idx, :] = fut_fea_mask_vec_sliced[:, :, 1].T
+
+        return (features_arr, fea_masks_arr), (fut_features_arr, fut_fea_masks_arr), (task, task_mask), (pheno, pheno_mask), towards, \
                (leg, leg_mask), idpatients
 
     def _get_num_uni_patients(self):
