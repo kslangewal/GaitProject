@@ -18,7 +18,6 @@ def load_model_container(model_class, model_identifier, df_path, datagen_batch_s
     # This function returns an object that wraps over the DL model
     # For each different model identifier, different set of hyperparameters is used
     # To look for the hyper-parameters I used, go to /data/hoi/gait_analysis/scripts/Spatiotemporal_VAE/model_chkpt/
-
     # Hard-coded stuffs
     seq_dim = 128
     init_lr = 0.001
@@ -48,6 +47,7 @@ def load_model_container(model_class, model_identifier, df_path, datagen_batch_s
         print("Model checkpoint identified.")
         load_model_path = save_model_path
     else:
+        print("Model checkpoint is missing")
         load_model_path = None
 
     # If hyper-parameters file (identified by filename) already exists, load it. If not, save it.
@@ -137,7 +137,9 @@ def run_save_model_outputs():
     df_pheno_save_path = "/mnt/thesis_results/data/model_phenos_outputs_full_final.pickle"
 
     identifier_set = ["Thesis_B", "Thesis_B+C", "Thesis_B+C+T", "Thesis_B+C+T+P"]
+    identifier_set = ["Thesis_B+C+T+P"]
     model_classess = [BaseContainer, ConditionalContainer, ConditionalContainer, PhenoCondContainer]
+    model_classess = [PhenoCondContainer]
     model_container_set = []
     data_gen = GaitGeneratorFromDFforTemporalVAE(df_path, m=512, n=128,
                                                  train_portion=0.8,
