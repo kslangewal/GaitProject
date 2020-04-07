@@ -1,4 +1,4 @@
-from .Model import SpatioTemporalVAE, PoseVAE, MotionVAE, Unsqueeze, TaskNet, pose_block
+from .Model import SpatioTemporalVAE, PoseVAE, MotionVAE, Unsqueeze, TaskNet, FutureNet, pose_block
 from common.utils import TensorAssigner, TensorAssignerDouble, numpy_bool_index_select
 import torch
 import torch.nn as nn
@@ -9,6 +9,7 @@ class ConditionalSpatioTemporalVAE(SpatioTemporalVAE):
     def __init__(self,
                  fea_dim=50,
                  seq_dim=128,
+                 fut_dim=16,
                  posenet_latent_dim=10,
                  posenet_dropout_p=0,
                  posenet_kld=True,
@@ -16,6 +17,7 @@ class ConditionalSpatioTemporalVAE(SpatioTemporalVAE):
                  motionnet_hidden_dim=512,
                  motionnet_dropout_p=0,
                  motionnet_kld=True,
+                 futnet_hidden_dim=512,
                  conditional_label_dim=0,
                  device=None
                  ):
@@ -23,10 +25,13 @@ class ConditionalSpatioTemporalVAE(SpatioTemporalVAE):
         This network takes input with shape (m, fea_dim, seq_dim), and reconstructs it, where m is number of samples.
         This network also does classification with the motion's latents. Number of classes is hard-coded as 8 (see below)
 
+        New 31.03.2020: the network also predicts 'fut_dim' frames following the sequence.
+
         Parameters
         ----------
         fea_dim : int
         seq_dim : int
+        fut_dim : int
         posenet_latent_dim : int
         posenet_dropout_p : float
         posenet_kld : bool
@@ -34,12 +39,14 @@ class ConditionalSpatioTemporalVAE(SpatioTemporalVAE):
         motionnet_hidden_dim : int
         motionnet_dropout_p : float
         motionnet_kld : bool
+        futnet_hidden_dim : int
         conditional_label_dim : int
             0 if conditional VAE is disabled. >0 specify the dimension of labels that will be concatenated to features
         """
         super(ConditionalSpatioTemporalVAE, self).__init__(
             fea_dim=fea_dim,
             seq_dim=seq_dim,
+            fut_dim=fut_dim,
             posenet_latent_dim=posenet_latent_dim,
             posenet_dropout_p=posenet_dropout_p,
             posenet_kld=posenet_kld,
@@ -47,6 +54,7 @@ class ConditionalSpatioTemporalVAE(SpatioTemporalVAE):
             motionnet_hidden_dim=motionnet_hidden_dim,
             motionnet_dropout_p=motionnet_dropout_p,
             motionnet_kld=motionnet_kld,
+            futnet_hidden_dim=futnet_hidden_dim,
             device=device
         )
         self.conditional_label_dim = conditional_label_dim
@@ -54,7 +62,7 @@ class ConditionalSpatioTemporalVAE(SpatioTemporalVAE):
                                            latent_dim=self.posenet_latent_dim,
                                            conditional_label_dim=self.conditional_label_dim,
                                            kld=self.posenet_kld,
-                                           dropout_p=self.posenet_kld,
+                                           dropout_p=self.posenet_dropout_p,
                                            device=self.device)
 
         self.motion_vae = ConditionalMotionVAE(fea_dim=self.posenet_latent_dim,
@@ -65,9 +73,19 @@ class ConditionalSpatioTemporalVAE(SpatioTemporalVAE):
                                                kld=self.motionnet_kld,
                                                dropout_p=self.motionnet_dropout_p,
                                                device=self.device)
+
         self.class_net = ConditionalTaskNet(input_dim=self.motionnet_latent_dim,
                                             conditional_label_dim=self.conditional_label_dim,
                                             n_classes=self.n_classes,
+                                            device=self.device)
+
+        self.fut_net = ConditionalFutureNet(conditional_label_dim=self.conditional_label_dim,
+                                            fut_dim=self.fut_dim,
+                                            fea_dim=self.fea_dim,
+                                            z_latent_dim=self.motionnet_latent_dim,
+                                            p_latent_dim=self.posenet_latent_dim,
+                                            hidden_dim=self.futnet_hidden_dim,
+                                            dropout_p=self.posenet_kld,
                                             device=self.device)
 
     def forward(self, *inputs):
@@ -79,7 +97,7 @@ class ConditionalSpatioTemporalVAE(SpatioTemporalVAE):
         labels : torch.tensor
             With shape (m, label_dim, seq)
         """
-        x, labels = inputs
+        x, labels, _, _ = inputs
 
         (pose_z_seq, pose_mu, pose_logvar), (motion_z, motion_mu, motion_logvar) = self.encode(x, labels)
 
@@ -87,7 +105,8 @@ class ConditionalSpatioTemporalVAE(SpatioTemporalVAE):
             motion_z, labels
         )  # Convert (m, motion_latent_dim+label_dim) to (m, fea, seq)
         pred_labels, task_latent = self.class_net(concat_motion_z)  # Convert (m, motion_latent_dim+label_dim) to (m, n_classes)
-        return recon_motion, pred_labels, (pose_z_seq, recon_pose_z_seq, pose_mu, pose_logvar), (
+        fut_recon = self.fut_net(concat_motion_z)
+        return recon_motion, pred_labels, fut_recon, (pose_z_seq, recon_pose_z_seq, pose_mu, pose_logvar), (
             motion_z, motion_mu, motion_logvar), task_latent
 
     def encode(self, x, labels):
@@ -120,6 +139,7 @@ class ConditionalSpatioTemporalVAE(SpatioTemporalVAE):
             recon_pose_z_seq)  # Convert (m, pose_latent_dim, seq) to (m * seq, pose_latent_dim)
         out = self.pose_decode(out)  # Convert (m * seq, pose_latent_dim) to (m * seq, fea)
         recon_motion = self.unflatten_transpose(out)  # Convert (m * seq, fea) to (m, fea+, seq)
+
         return recon_motion, recon_pose_z_seq, concat_motion_z
 
 
@@ -167,6 +187,25 @@ class ConditionalTaskNet(TaskNet):
                                                  device=device)
         self.first_layer = nn.Linear(self.input_dim + self.conditional_label_dim,
                                      self.encode_units[0])
+
+class ConditionalFutureNet(FutureNet):
+    def __init__(self, conditional_label_dim=0, fut_dim=16, fea_dim=50, z_latent_dim=128, p_latent_dim=16, hidden_dim=512, dropout_p=0, device=None):
+        super(ConditionalFutureNet, self).__init__(
+            fut_dim=fut_dim,
+            fea_dim=fea_dim,
+            z_latent_dim=z_latent_dim,
+            p_latent_dim=p_latent_dim,
+            hidden_dim=hidden_dim,
+            dropout_p=dropout_p,
+            device=device)
+        self.conditional_label_dim = conditional_label_dim
+        self.latents2de = nn.Sequential(
+            Unsqueeze(),
+            nn.ConvTranspose1d(self.z_latent_dim + self.conditional_label_dim,
+                                hidden_dim,
+                                kernel_size=self.decoding_kernels[0],
+                                stride=self.decoding_strides[0])
+        )
 
 
 class PhenotypeNet(nn.Module):
@@ -259,6 +298,7 @@ class ConditionalPhenotypeSpatioTemporalVAE(ConditionalSpatioTemporalVAE):
     def __init__(self,
                  fea_dim=50,
                  seq_dim=128,
+                 fut_dim=16,
                  num_phenos=13,
                  posenet_latent_dim=10,
                  posenet_dropout_p=0,
@@ -267,12 +307,14 @@ class ConditionalPhenotypeSpatioTemporalVAE(ConditionalSpatioTemporalVAE):
                  motionnet_hidden_dim=512,
                  motionnet_dropout_p=0,
                  motionnet_kld=True,
+                 futnet_hidden_dim=512,
                  conditional_label_dim=0,
                  device=None
                  ):
         super(ConditionalPhenotypeSpatioTemporalVAE, self).__init__(
             fea_dim=fea_dim,
             seq_dim=seq_dim,
+            fut_dim=fut_dim,
             posenet_latent_dim=posenet_latent_dim,
             posenet_dropout_p=posenet_dropout_p,
             posenet_kld=posenet_kld,
@@ -280,6 +322,7 @@ class ConditionalPhenotypeSpatioTemporalVAE(ConditionalSpatioTemporalVAE):
             motionnet_hidden_dim=motionnet_hidden_dim,
             motionnet_dropout_p=motionnet_dropout_p,
             motionnet_kld=motionnet_kld,
+            futnet_hidden_dim=futnet_hidden_dim,
             conditional_label_dim=conditional_label_dim,
             device=device
         )
@@ -294,7 +337,7 @@ class ConditionalPhenotypeSpatioTemporalVAE(ConditionalSpatioTemporalVAE):
 
     def forward(self, *inputs):
 
-        x, labels, tasks_np, tasks_mask_np, patient_ids_np, phenos_np, phenos_mask_np = inputs
+        x, labels, fut_np, fut_mask_np, tasks_np, tasks_mask_np, patient_ids_np, phenos_np, phenos_mask_np = inputs
         (pose_z_seq, pose_mu, pose_logvar), (motion_z, motion_mu, motion_logvar) = self.encode(x, labels)
 
         recon_motion, recon_pose_z_seq, concat_motion_z = self.decode(
@@ -305,6 +348,8 @@ class ConditionalPhenotypeSpatioTemporalVAE(ConditionalSpatioTemporalVAE):
         # Identification net
         pred_identify, labels_identify, pheno_latent = self.phenotype_net(motion_z, tasks_np, tasks_mask_np, patient_ids_np, phenos_np, phenos_mask_np)
 
-        return recon_motion, pred_labels, (pose_z_seq, recon_pose_z_seq, pose_mu, pose_logvar), (
+        fut_recon = self.fut_net(concat_motion_z)
+
+        return recon_motion, pred_labels, fut_recon, (pose_z_seq, recon_pose_z_seq, pose_mu, pose_logvar), (
             motion_z, motion_mu, motion_logvar), (pred_identify, labels_identify, pheno_latent), task_latent
 

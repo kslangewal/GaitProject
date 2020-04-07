@@ -155,6 +155,7 @@ class SpatioTemporalVAE(nn.Module):
     def __init__(self,
                  fea_dim=50,
                  seq_dim=128,
+                 fut_dim=16,
                  posenet_latent_dim=10,
                  posenet_dropout_p=0,
                  posenet_kld=True,
@@ -162,16 +163,20 @@ class SpatioTemporalVAE(nn.Module):
                  motionnet_hidden_dim=512,
                  motionnet_dropout_p=0,
                  motionnet_kld=True,
+                 futnet_hidden_dim=512,
                  device=None
                  ):
         """
         This network takes input with shape (m, fea_dim, seq_dim), and reconstructs it, where m is number of samples.
         This network also does classification with the motion's latents. Number of classes is hard-coded as 8 (see below)
 
+        New 31.03.2020: the network also predicts 'fut_dim' frames following the sequence.
+
         Parameters
         ----------
         fea_dim : int
         seq_dim : int
+        fut_dim : int
         posenet_latent_dim : int
         posenet_dropout_p : float
         posenet_kld : bool
@@ -179,11 +184,13 @@ class SpatioTemporalVAE(nn.Module):
         motionnet_hidden_dim : int
         motionnet_dropout_p : float
         motionnet_kld : bool
+        futnet_hidden_dim : int
         """
         # # Loading parameters
         # Data dimension
         self.fea_dim = fea_dim
         self.seq_dim = seq_dim
+        self.fut_dim = fut_dim
         self.n_classes = 8
         # Autoencoder for single pose
         self.posenet_latent_dim = posenet_latent_dim
@@ -194,6 +201,8 @@ class SpatioTemporalVAE(nn.Module):
         self.motionnet_hidden_dim = motionnet_hidden_dim
         self.motionnet_dropout_p = motionnet_dropout_p
         self.motionnet_kld = motionnet_kld
+        # Future prediction
+        self.futnet_hidden_dim = futnet_hidden_dim
         # Others
         super(SpatioTemporalVAE, self).__init__()
         self.device = torch.device('cuda:0') if device is None else device
@@ -220,11 +229,21 @@ class SpatioTemporalVAE(nn.Module):
                                  n_classes=self.n_classes,
                                  device=self.device)
 
-    def forward(self, x):
+        self.fut_net = FutureNet(fut_dim=self.fut_dim,
+                                 fea_dim=self.fea_dim,
+                                 z_latent_dim=self.motionnet_latent_dim,
+                                 p_latent_dim=self.posenet_latent_dim,
+                                 hidden_dim=self.futnet_hidden_dim,
+                                 dropout_p=self.posenet_dropout_p,
+                                 device=self.device)
+
+    def forward(self, *input):
+        x, _, _ = input
         (pose_z_seq, pose_mu, pose_logvar), (motion_z, motion_mu, motion_logvar) = self.encode(x)
         recon_motion, recon_pose_z_seq = self.decode(motion_z)  # Convert (m, motion_latent_dim) to (m, fea, seq)
         pred_labels, task_latent = self.class_net(motion_z)  # Convert (m, motion_latent_dim) to (m, n_classes)
-        return recon_motion, pred_labels, (pose_z_seq, recon_pose_z_seq, pose_mu, pose_logvar), (
+        fut_recon = self.fut_net(motion_z)
+        return recon_motion, pred_labels, fut_recon, (pose_z_seq, recon_pose_z_seq, pose_mu, pose_logvar), (
         motion_z, motion_mu, motion_logvar), task_latent
 
     def encode(self, x):
@@ -532,6 +551,7 @@ class MotionVAE(nn.Module):
         out = self.de_blk4(out)
 
         out = self.final_layer(out)
+
         return out
 
 
@@ -586,6 +606,105 @@ class TaskNet(nn.Module):
         out = self.en_blk3(out) + out[:, 0:int(self.encode_units[3])]
 
         out = self.final_layer(out)
+        return out
+
+
+class FutureNet(nn.Module):
+    def __init__(self, fut_dim, fea_dim, z_latent_dim, p_latent_dim, hidden_dim, dropout_p, device=None):
+        """
+        FutureNet takes in the latent dimension of the VAE of size (m, z_latent_dim) and converts this into a sequence
+        of (m, fea_dim, fut_dim), representing the future fut_dim frames of the sequence.
+
+        Inputs:
+        fut_dim: int
+        fea_dim: int
+        z_latent_dim: int
+        p_latent_dim: int
+        hidden_dim: int
+        dropout_p: int
+        """
+        # Model setting
+        super(FutureNet, self).__init__()
+        self.fut_dim = fut_dim
+        self.z_latent_dim = z_latent_dim
+        self.device = torch.device('cuda:0') if device is None else device
+
+        self.decoding_kernels = [5, 5, 5, 4]
+        self.decoding_strides = [1, 1, 1, 1]
+        self.decode_units = [32, 64, 128, 512]
+
+        # Layer set-up
+        self.transpose_layer = Transpose()
+        self.flatten_layer = Flatten()
+        self.unflatten_layer = UnFlatten(self.fut_dim)
+
+        self.latents2de = nn.Sequential(
+            Unsqueeze(),
+            nn.ConvTranspose1d(z_latent_dim,
+                               hidden_dim,
+                               kernel_size=self.decoding_kernels[0],
+                               stride=self.decoding_strides[0]))
+
+        self.de_blk1 = nn.Sequential(*motion_decoding_block(hidden_dim,
+                                                            hidden_dim,
+                                                            kernel_size=self.decoding_kernels[1],
+                                                            stride=self.decoding_strides[1]))
+
+        self.de_blk2 = nn.Sequential(*motion_decoding_block(hidden_dim,
+                                                            hidden_dim,
+                                                            kernel_size=self.decoding_kernels[2],
+                                                            stride=self.decoding_strides[2]))
+
+        self.de_blk3 = nn.Sequential(*motion_decoding_block(hidden_dim,
+                                                            hidden_dim,
+                                                            kernel_size=self.decoding_kernels[3],
+                                                            stride=self.decoding_strides[3]))
+
+        self.middle_layer = nn.Conv1d(hidden_dim, p_latent_dim, kernel_size=1)
+
+        self.platents2de = nn.Linear(p_latent_dim, self.decode_units[0])
+
+        self.pde_blk1 = nn.Sequential(*pose_block(input_channels=self.decode_units[0],
+                                                    output_channels=self.decode_units[1],
+                                                    dropout_p=dropout_p))
+
+        self.pde_blk2 = nn.Sequential(*pose_block(input_channels=self.decode_units[1],
+                                                    output_channels=self.decode_units[2],
+                                                    dropout_p=dropout_p))
+
+        self.pde_blk3 = nn.Sequential(*pose_block(input_channels=self.decode_units[2],
+                                                    output_channels=self.decode_units[3],
+                                                    dropout_p=dropout_p))
+
+        self.final_layer = nn.Linear(self.decode_units[3], fea_dim)
+
+    def forward(self, motion_z):
+        out = self.latents2de(motion_z)
+        out = self.de_blk1(out)
+        out = self.de_blk2(out)
+        out = self.de_blk3(out)
+        out = self.middle_layer(out)
+
+        out = self.transpose_flatten(out)
+
+        out = self.platents2de(out)
+        out = self.pde_blk1(out)
+        out = self.pde_blk2(out)
+        out = self.pde_blk3(out)
+        out = self.final_layer(out)
+
+        out = self.unflatten_transpose(out)
+
+        return out
+
+    def transpose_flatten(self, x):
+        out = self.transpose_layer(x)
+        out = self.flatten_layer(out)
+        return out
+
+    def unflatten_transpose(self, x):
+        out = self.unflatten_layer(x)
+        out = self.transpose_layer(out)
         return out
 
 

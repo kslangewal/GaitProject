@@ -39,10 +39,12 @@ def load_model_container(model_class, model_identifier, df_path, datagen_batch_s
         "recon_gradient": 0.0001,
         "class_weight": 0.001,
         "latent_recon_loss": 1,
-    }
+        "fut_weight": 1,
+        }
     save_model_path = "Spatiotemporal_VAE/model_chkpt/ckpt_%s.pth" % model_identifier
     save_hyper_params_path = "Spatiotemporal_VAE/model_chkpt/hyperparms_%s.json" % model_identifier
 
+    print('\n\nChecking if path exists')
     if os.path.isfile(save_model_path):
         print("Model checkpoint identified.")
         load_model_path = save_model_path
@@ -82,6 +84,8 @@ def load_model_container(model_class, model_identifier, df_path, datagen_batch_s
                                   recon_gradient=hyper_params["recon_gradient"],
                                   classification_weight=hyper_params["class_weight"],
                                   latent_recon_loss=hyper_params["latent_recon_loss"],
+                                  fut_weight=hyper_params["fut_weight"],
+                                  futnet_hidden_dim=512,
                                   init_lr=init_lr,
                                   lr_milestones=lr_milestones,
                                   lr_decay_gamma=lr_decay_gamma,
@@ -101,7 +105,7 @@ def run_train_and_vis_on_stvae():
 
     # =======================================================
     # Based on the model identifier you choose, you will need to the variable identifiers below
-    gaitprint_completion = True  # True for Thesis B+T+C+P, False for Thesis_B, Thesis_B+C, Thesis_B+C+T
+    gaitprint_completion = True # True for Thesis B+T+C+P, False for Thesis_B, Thesis_B+C, Thesis_B+C+T
     batch_size = 64  # 64 for Thesis_B+C+T+P, 512 for Thesis_B, Thesis_B+C, Thesis_B+C+T
     # model_class = BaseContainer  # For Thesis_B
     # model_class = ConditionalContainer  # For Thesis_B+C or Thesis_B+C+T
@@ -137,9 +141,7 @@ def run_save_model_outputs():
     df_pheno_save_path = "/mnt/thesis_results/data/model_phenos_outputs_full_final.pickle"
 
     identifier_set = ["Thesis_B", "Thesis_B+C", "Thesis_B+C+T", "Thesis_B+C+T+P"]
-    identifier_set = ["Thesis_B+C+T+P"]
     model_classess = [BaseContainer, ConditionalContainer, ConditionalContainer, PhenoCondContainer]
-    model_classess = [PhenoCondContainer]
     model_container_set = []
     data_gen = GaitGeneratorFromDFforTemporalVAE(df_path, m=512, n=128,
                                                  train_portion=0.8,
