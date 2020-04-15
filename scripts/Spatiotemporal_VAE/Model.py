@@ -155,7 +155,7 @@ class SpatioTemporalVAE(nn.Module):
     def __init__(self,
                  fea_dim=50,
                  seq_dim=128,
-                 fut_dim=16,
+                 fut_dim=32,
                  posenet_latent_dim=10,
                  posenet_dropout_p=0,
                  posenet_kld=True,
@@ -630,7 +630,7 @@ class FutureNet(nn.Module):
         self.device = torch.device('cuda:0') if device is None else device
 
         self.decoding_kernels = [5, 5, 5, 4]
-        self.decoding_strides = [1, 1, 1, 1]
+        self.decoding_strides = [1, 2, 2, 1]
         self.decode_units = [32, 64, 128, 512]
 
         # Layer set-up
@@ -694,7 +694,6 @@ class FutureNet(nn.Module):
         out = self.final_layer(out)
 
         out = self.unflatten_transpose(out)
-
         return out
 
     def transpose_flatten(self, x):

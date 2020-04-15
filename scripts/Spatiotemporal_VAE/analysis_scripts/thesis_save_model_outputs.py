@@ -72,6 +72,7 @@ class OutputSavers:
         self.df_dict["direction"] = list(towards)
         self.df_dict["ori_fut"] = list(fut_np)
         self.df_dict["ori_fut_mask"] = list(fut_mask_np)
+        self.df_dict["idpatients"] = list(idpatients_np)
 
         # Loading each model and doing forward inference in each loop
         for identifier, model_container_kwargs in zip(self.identifier_set, self.model_container_set):
@@ -85,9 +86,8 @@ class OutputSavers:
             else:
                 recon, pred_task, fut_recon, _, motion_info, task_latent = data_outputs
                 phenos_pred, phenos_labels_np, pheno_latent = None, None, None
-
-            motion_z, _, _ = motion_info
-            data_to_record = (recon, motion_z, pred_task, fut_recon, phenos_pred, phenos_labels_np, pheno_latent, task_latent)
+            motion_z, motion_mu, motion_logvar = motion_info
+            data_to_record = (recon, motion_z, motion_mu, motion_logvar, pred_task, fut_recon, phenos_pred, phenos_labels_np, pheno_latent, task_latent)
 
             # Store data into self.df_dict aand self.df_pheno_dict in each loop, for creating an overall dataframe later
             # Umap transformation is also done below
@@ -97,9 +97,8 @@ class OutputSavers:
         self._save_dfs()
 
     def _record_data_by_identifier(self, identifier, data_to_record):
-
-        (recon, motion_z, pred_task, fut_recon, phenos_pred, phenos_labels_np, pheno_latent, task_latent) = data_to_record
-        recon, motion_z, pred_task, fut_recon, task_latent = tensor2numpy(recon, motion_z, pred_task, fut_recon, task_latent)
+        (recon, motion_z, motion_mu, motion_logvar, pred_task, fut_recon, phenos_pred, phenos_labels_np, pheno_latent, task_latent) = data_to_record
+        recon, motion_z, motion_mu, motion_logvar, pred_task, fut_recon, task_latent = tensor2numpy(recon, motion_z, motion_mu, motion_logvar, pred_task, fut_recon, task_latent)
 
         if identifier == "B+C+T":
             self.df_dict["{}_pred_task".format(identifier)] = list(np.argmax(pred_task, axis=1))
@@ -118,6 +117,8 @@ class OutputSavers:
         self.df_dict["{}_recon".format(identifier)] = list(recon)
         self.df_dict["{}_fut_recon".format(identifier)] = list(fut_recon)
         self.df_dict["{}_z".format(identifier)] = list(motion_z)  # z = latent vector
+        self.df_dict["{}_z_mu".format(identifier)] = list(motion_mu)
+        self.df_dict["{}_z_logvar".format(identifier)] = list(motion_logvar)
         self.df_dict["{}_z_umap".format(identifier)] = list(self._umap_transform(motion_z))
 
     def _save_dfs(self):

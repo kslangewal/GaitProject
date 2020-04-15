@@ -20,6 +20,7 @@ def load_model_container(model_class, model_identifier, df_path, datagen_batch_s
     # To look for the hyper-parameters I used, go to /data/hoi/gait_analysis/scripts/Spatiotemporal_VAE/model_chkpt/
     # Hard-coded stuffs
     seq_dim = 128
+    fut_dim = 32 # fut_dim is hard-coded to 32, to change adjust generator.py: GaitGeneratorfromDFforTemporalVAE and workflow.py: preprocessing 2 vidoes length. 
     init_lr = 0.001
     lr_milestones = [75]
     lr_decay_gamma = 0.1
@@ -44,7 +45,6 @@ def load_model_container(model_class, model_identifier, df_path, datagen_batch_s
     save_model_path = "Spatiotemporal_VAE/model_chkpt/ckpt_%s.pth" % model_identifier
     save_hyper_params_path = "Spatiotemporal_VAE/model_chkpt/hyperparms_%s.json" % model_identifier
 
-    print('\n\nChecking if path exists')
     if os.path.isfile(save_model_path):
         print("Model checkpoint identified.")
         load_model_path = save_model_path
@@ -72,6 +72,7 @@ def load_model_container(model_class, model_identifier, df_path, datagen_batch_s
     model_container = model_class(data_gen=data_gen,
                                   fea_dim=50,
                                   seq_dim=seq_dim,
+                                  fut_dim=fut_dim,
                                   conditional_label_dim=hyper_params["conditional_label_dim"],
                                   posenet_latent_dim=hyper_params["posenet_latent_dim"],
                                   posenet_dropout_p=hyper_params["posenet_dropout_p"],

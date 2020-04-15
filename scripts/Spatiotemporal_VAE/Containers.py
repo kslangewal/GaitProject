@@ -25,7 +25,7 @@ class BaseContainer:
                  data_gen,
                  fea_dim=50,
                  seq_dim=128,
-                 fut_dim=16,
+                 fut_dim=32,
                  conditional_label_dim=0,
                  posenet_latent_dim=10,
                  posenet_dropout_p=0,
@@ -104,6 +104,7 @@ class BaseContainer:
         else:
             self.model, self.optimizer, self.lr_scheduler = self._load_model()
         #self._save_model()  # Enabled only for renewing newly introduced hyper-parameters
+
 
     def forward_evaluate(self, datagen_tuple):
         self.model.eval()
@@ -519,7 +520,7 @@ class PhenoCondContainer(BaseContainer):
                  data_gen,
                  fea_dim=50,
                  seq_dim=128,
-                 fut_dim=16,
+                 fut_dim=32,
                  conditional_label_dim=0,
                  num_phenos=13,
                  posenet_latent_dim=10,
@@ -614,7 +615,6 @@ class PhenoCondContainer(BaseContainer):
         return model, optimizer, lr_scheduler
 
 
-
     def _convert_input_data(self, data_tuple):
         # Unfolding
         x, nan_masks, fut_np, fut_mask_np, tasks_np, tasks_mask_np, phenos_np, phenos_mask_np, towards, _, _, idpatients_np = data_tuple
@@ -635,8 +635,10 @@ class PhenoCondContainer(BaseContainer):
         input_info = (x, nan_masks, fut, fut_mask, tasks, tasks_mask)
         return input_data, input_info
 
+
     def _get_entropy(self, log_density):
         N = log_density.shape[1]
+
         # max_arr is added for numerical stability
         max_arr, _ = torch.max(log_density, dim=1, keepdim=True)
         sum_arr = torch.sum(torch.exp(log_density - max_arr), dim=1)
@@ -645,7 +647,9 @@ class PhenoCondContainer(BaseContainer):
         return entropy
 
 
-    def _get_decomposed_kld(self, motion_z, motion_mu, motion_logvar, beta):
+    def _get_decomposed_kld(self, motion_z, motion_mu, motion_logvar, beta=5):
+        # The decomposed KLD is split in 'Total correlation', 'Mutual information' and 'Dimension
+        # wise KLD'. Like suggested in Chen et al. 2018 'Isolation sources of disentanglement in VAEs.
         N = motion_z.shape[0]
         K = motion_z.shape[1]
 
@@ -663,17 +667,27 @@ class PhenoCondContainer(BaseContainer):
         marginal_entropy = self._get_entropy(log_density_z_j)
         joint_entropy = self._get_entropy(log_density_z)
 
+        # Get nlogpz assuming prior N(0,1)
+        nlogpz = -0.5 * (motion_z.pow(2) + np.log(2 * np.pi))
+
         # Get nlogqz_condx for the mutual information term
         tmp = (motion_z - motion_mu) * torch.exp(-0.5 * motion_logvar)
         nlogqz_condx = torch.sum(-0.5 * (tmp * tmp + motion_logvar + np.log(2 * np.pi)), dim=1)
 
-        # Get nlogpz assuming prior N(0,1)
-        nlogpz = -0.5 * (motion_z.pow(2) + np.log(2 * np.pi))
-
         mutual_information = nlogqz_condx - joint_entropy
         total_correlation = joint_entropy - torch.sum(marginal_entropy, dim=1)
-        dimwise_kld = marginal_entropy - nlogpz
-        decomposed_kld = torch.mean(mutual_information + beta * total_correlation + torch.sum(dimwise_kld, dim=1))
+        dimwise_kld = torch.sum(marginal_entropy - nlogpz, dim=1)
+        # Enable printing for debugging purposes.
+        #print('\n\njoint entr: ', torch.mean(joint_entropy))
+        #print('marginal entr: ', torch.mean(marginal_entropy))
+        #print('nlogqz_condx: ', torch.mean(nlogqz_condx))
+        #print('nlogpz: ', torch.mean(nlogpz))
+        #print('Mutual Information: ', torch.mean(mutual_information))
+        #print('Total Correlation: ', torch.mean(total_correlation))
+        #print('Dimwise kld: ', torch.mean(dimwise_kld))
+        #print('New KLD: ', torch.mean(mutual_information + total_correlation + dimwise_kld))
+
+        decomposed_kld = torch.mean(mutual_information + beta * total_correlation + dimwise_kld)
         return decomposed_kld
 
     def loss_function(self, model_outputs, inputs_info):
@@ -687,14 +701,19 @@ class PhenoCondContainer(BaseContainer):
         # Posenet kld
         posenet_kld_multiplier = self._get_interval_multiplier(self.posenet_kld)
         posenet_kld_loss_indicator = -0.5 * torch.mean(1 + pose_logvar - pose_mu.pow(2) - pose_logvar.exp())
-        posenet_kld_loss = 20 * posenet_kld_multiplier * posenet_kld_loss_indicator
+        posenet_kld_loss = posenet_kld_multiplier * posenet_kld_loss_indicator
 
         # Motionnet kld
-        motion_decomposed_kld = self._get_decomposed_kld(motion_z, motion_mu, motion_logvar, 5)
         motionnet_kld_multiplier = self._get_interval_multiplier(self.motionnet_kld)
         motionnet_kld_loss_indicator = -0.5 * torch.mean(1 + motion_logvar - motion_mu.pow(2) - motion_logvar.exp())
-        #motionnet_kld_loss = motionnet_kld_multiplier * motionnet_kld_loss_indicator
-        motionnet_kld_loss = motionnet_kld_multiplier * 0.00004 * (motion_decomposed_kld)
+        # For normal VAE: beta = 1, for beta-VAE set beta > 1
+        beta = 1
+        motionnet_kld_loss = motionnet_kld_multiplier * beta * motionnet_kld_loss_indicator
+        # To use the TC-VAE uncommend the following 2 lines:
+        #motion_decomposed_kld = self._get_decomposed_kld(motion_z, motion_mu, motion_logvar, beta=5)
+        #motionnet_kld_loss = motionnet_kld_multiplier * 0.00004 * (motion_decomposed_kld)
+        # Note by katja 15.4.20: The 0.00004 factor is rather arbitrary to get the decomposed kld on the same scale as the original one,
+        # this depends on beta in motion_decomposed_kld. I haven't managed to find a clear relation to do this automatically.
 
         # Recon loss
         diff = x - recon_motion
