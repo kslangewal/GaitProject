@@ -52,7 +52,7 @@
 # scr_keyps_dir = "/mnt/data/preprocessed_keypoints"
 # labels_path = "/mnt/data/labels/fn_tasks_phenos_validated_rename.pkl"
 # df_save_path = "/mnt/data/full_feas_tasks_phenos_nanMasks_idpatient_leg.pickle"
-# minimum_sequence_window = 144  # Predefined fixed video segment length
+# minimum_sequence_window = 128 + 32  # Predefined fixed video segment length plus number of frames to predict
 # extractor = FeatureExtractorForODE(scr_keyps_dir=scr_keyps_dir,
 #                                    labels_path=labels_path,
 #                                    df_save_path=df_save_path)

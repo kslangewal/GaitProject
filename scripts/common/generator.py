@@ -158,6 +158,7 @@ class GaitGeneratorFromDFforTemporalVAE(GaitGeneratorFromDF):
 
         # Set number of features
         self.keyps_x_dims, self.keyps_y_dims = 25, 25
+        self.fut_dim = 32
         self.total_fea_dims = self.keyps_x_dims + self.keyps_y_dims
 
         # Call parent's init
@@ -256,16 +257,16 @@ class GaitGeneratorFromDFforTemporalVAE(GaitGeneratorFromDF):
         features_arr = np.zeros((num_samples, self.total_fea_dims, self.n))
         fea_masks_arr = np.zeros(features_arr.shape)
 
-        fut_features_arr = np.zeros((num_samples, self.total_fea_dims, 16))
+        fut_features_arr = np.zeros((num_samples, self.total_fea_dims, self.fut_dim))
         fut_fea_masks_arr = np.zeros(fut_features_arr.shape)
 
         for i in range(num_samples):
             # Slice to the receptive window
-            slice_start = np.random.choice(fea_vec[i,].shape[0] - self.n - 16)
+            slice_start = np.random.choice(fea_vec[i,].shape[0] - self.n - self.fut_dim)
             fea_vec_sliced = fea_vec[i][slice_start:slice_start + self.n, :, :]
             fea_mask_vec_sliced = fea_mask_vec[i][slice_start:slice_start + self.n, :, :]
-            fut_fea_vec_sliced = fea_vec[i][slice_start + self.n:slice_start + self.n + 16, :, :]
-            fut_fea_mask_vec_sliced = fea_mask_vec[i][slice_start + self.n:slice_start + self.n + 16, :, :]
+            fut_fea_vec_sliced = fea_vec[i][slice_start + self.n:slice_start + self.n + self.fut_dim, :, :]
+            fut_fea_mask_vec_sliced = fea_mask_vec[i][slice_start + self.n:slice_start + self.n + self.fut_dim, :, :]
 
             # Construct output
             x_end_idx, y_end_idx = self.keyps_x_dims, self.keyps_x_dims + self.keyps_y_dims

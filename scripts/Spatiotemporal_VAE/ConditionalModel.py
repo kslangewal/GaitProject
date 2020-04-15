@@ -9,7 +9,7 @@ class ConditionalSpatioTemporalVAE(SpatioTemporalVAE):
     def __init__(self,
                  fea_dim=50,
                  seq_dim=128,
-                 fut_dim=16,
+                 fut_dim=32,
                  posenet_latent_dim=10,
                  posenet_dropout_p=0,
                  posenet_kld=True,
@@ -189,7 +189,7 @@ class ConditionalTaskNet(TaskNet):
                                      self.encode_units[0])
 
 class ConditionalFutureNet(FutureNet):
-    def __init__(self, conditional_label_dim=0, fut_dim=16, fea_dim=50, z_latent_dim=128, p_latent_dim=16, hidden_dim=512, dropout_p=0, device=None):
+    def __init__(self, conditional_label_dim=0, fut_dim=32, fea_dim=50, z_latent_dim=128, p_latent_dim=16, hidden_dim=512, dropout_p=0, device=None):
         super(ConditionalFutureNet, self).__init__(
             fut_dim=fut_dim,
             fea_dim=fea_dim,
@@ -202,9 +202,9 @@ class ConditionalFutureNet(FutureNet):
         self.latents2de = nn.Sequential(
             Unsqueeze(),
             nn.ConvTranspose1d(self.z_latent_dim + self.conditional_label_dim,
-                                hidden_dim,
-                                kernel_size=self.decoding_kernels[0],
-                                stride=self.decoding_strides[0])
+                               hidden_dim,
+                               kernel_size=self.decoding_kernels[0],
+                               stride=self.decoding_strides[0])
         )
 
 
@@ -298,7 +298,7 @@ class ConditionalPhenotypeSpatioTemporalVAE(ConditionalSpatioTemporalVAE):
     def __init__(self,
                  fea_dim=50,
                  seq_dim=128,
-                 fut_dim=16,
+                 fut_dim=32,
                  num_phenos=13,
                  posenet_latent_dim=10,
                  posenet_dropout_p=0,
@@ -336,7 +336,6 @@ class ConditionalPhenotypeSpatioTemporalVAE(ConditionalSpatioTemporalVAE):
         )
 
     def forward(self, *inputs):
-
         x, labels, fut_np, fut_mask_np, tasks_np, tasks_mask_np, patient_ids_np, phenos_np, phenos_mask_np = inputs
         (pose_z_seq, pose_mu, pose_logvar), (motion_z, motion_mu, motion_logvar) = self.encode(x, labels)
 
@@ -352,4 +351,3 @@ class ConditionalPhenotypeSpatioTemporalVAE(ConditionalSpatioTemporalVAE):
 
         return recon_motion, pred_labels, fut_recon, (pose_z_seq, recon_pose_z_seq, pose_mu, pose_logvar), (
             motion_z, motion_mu, motion_logvar), (pred_identify, labels_identify, pheno_latent), task_latent
-
