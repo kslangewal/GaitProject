@@ -664,7 +664,7 @@ pheno2idx_dict = {
     "paretisches Gangbild": 9,
     "sensorisch-ataktisches Gangbild": 10,
     "spastisch-ataktisches Gangbild": 11,
-    "spastisch Gangbild": 12
+    "spastisches Gangbild": 12
 }
 
 idx2pheno_dict = {v: k for k, v in pheno2idx_dict.items()}
