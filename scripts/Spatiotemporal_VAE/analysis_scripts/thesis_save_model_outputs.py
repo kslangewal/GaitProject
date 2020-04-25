@@ -33,7 +33,7 @@ class OutputSavers:
 
     """
 
-    def __init__(self, data_gen, model_container_set, identifier_set, save_df_path, save_pheno_df_path):
+    def __init__(self, data_gen, model_container_set, identifier_set, save_df_path, save_pheno_df_path, save_kld_df_path):
         """
         data_gen : object
         model_container_set : list
@@ -44,6 +44,8 @@ class OutputSavers:
             Path for saving the dataframe that stores general data
         save_pheno_df_path : str
             Path for saving the dataframe that stores the results of PhenotypeNet
+        save_kld_df_path: str
+            Path for saving the dataframe that stores the kld reconstruction
         """
         self.data_gen = data_gen
         self.data_gen.mt = data_gen.df_test.shape[0]  # s.t. all data are loaded in first generaator loop
@@ -51,16 +53,20 @@ class OutputSavers:
         self.model_container_set = model_container_set
         self.df_dict = dict()  # For being loaded into output dataframe (storing general data)
         self.df_pheno_dict = dict()  # For being loaded into output dataframe (storing PhenoType resutls    )
+        self.df_kld_dict = dict() # For being loaded into output dataframe (storing kld reconstruction)
         self.save_df_path = save_df_path
         self.save_pheno_df_path = save_pheno_df_path
+        self.save_kld_df_path = save_kld_df_path
 
 
     def forward_batch(self):
+        print('Data iteration ...')
         # Dummy iteration to dump all test data
         for _, test_data in self.data_gen.iterator():
             pass
+        print('Done')
 
-        x, nan_masks, fut_np, fut_mask_np, tasks_np, tasks_mask_np, phenos_np, phenos_mask_np, towards, _, _, idpatients_np = test_data
+        x, nan_masks, fut_np, fut_mask_np, fut_avail_mask_np, tasks_np, tasks_mask_np, phenos_np, phenos_mask_np, towards, _, _, idpatients_np = test_data
 
         # Store common input data into the output dataframe dictionary
         self.df_dict["ori_motion"] = list(x)
@@ -72,6 +78,7 @@ class OutputSavers:
         self.df_dict["direction"] = list(towards)
         self.df_dict["ori_fut"] = list(fut_np)
         self.df_dict["ori_fut_mask"] = list(fut_mask_np)
+        self.df_dict["fut_avail_mask"] = list(fut_avail_mask_np)
         self.df_dict["idpatients"] = list(idpatients_np)
 
         # Loading each model and doing forward inference in each loop
@@ -83,11 +90,13 @@ class OutputSavers:
             if identifier == "B+C+T+P":  # PhenotypeNet has extra columns to store in separate dataframe
                 recon, pred_task, fut_recon, _, motion_info, phenos_info, task_latent = data_outputs
                 phenos_pred, phenos_labels_np, pheno_latent = phenos_info
+                recon_kld = model_container.forward_decode_only(motion_info, towards, 8, 4, 5)
             else:
                 recon, pred_task, fut_recon, _, motion_info, task_latent = data_outputs
                 phenos_pred, phenos_labels_np, pheno_latent = None, None, None
+                recon_kld = None
             motion_z, motion_mu, motion_logvar = motion_info
-            data_to_record = (recon, motion_z, motion_mu, motion_logvar, pred_task, fut_recon, phenos_pred, phenos_labels_np, pheno_latent, task_latent)
+            data_to_record = (recon, motion_z, motion_mu, motion_logvar, pred_task, fut_recon, phenos_pred, phenos_labels_np, pheno_latent, task_latent, recon_kld)
 
             # Store data into self.df_dict aand self.df_pheno_dict in each loop, for creating an overall dataframe later
             # Umap transformation is also done below
@@ -97,7 +106,7 @@ class OutputSavers:
         self._save_dfs()
 
     def _record_data_by_identifier(self, identifier, data_to_record):
-        (recon, motion_z, motion_mu, motion_logvar, pred_task, fut_recon, phenos_pred, phenos_labels_np, pheno_latent, task_latent) = data_to_record
+        (recon, motion_z, motion_mu, motion_logvar, pred_task, fut_recon, phenos_pred, phenos_labels_np, pheno_latent, task_latent, recon_kld) = data_to_record
         recon, motion_z, motion_mu, motion_logvar, pred_task, fut_recon, task_latent = tensor2numpy(recon, motion_z, motion_mu, motion_logvar, pred_task, fut_recon, task_latent)
 
         if identifier == "B+C+T":
@@ -106,10 +115,12 @@ class OutputSavers:
             self.df_dict["{}_tl_umap".format(identifier)] = list(self._umap_transform(task_latent))
 
         elif identifier == "B+C+T+P":
-            phenos_pred, pheno_latent = tensor2numpy(phenos_pred, pheno_latent)
+            phenos_pred, pheno_latent, recon_kld = tensor2numpy(phenos_pred, pheno_latent, recon_kld)
             self.df_dict["{}_pred_task".format(identifier)] = list(np.argmax(pred_task, axis=1))
             self.df_dict["{}_task_latent".format(identifier)] = list(task_latent)
             self.df_dict["{}_tl_umap".format(identifier)] = list(self._umap_transform(task_latent))
+            for i in range(0,recon_kld.shape[0]):
+                self.df_kld_dict["recon_kld_{}".format(i)] = list(recon_kld[i,:,:,:])
             self.df_pheno_dict["pheno_pred"] = list(np.argmax(phenos_pred, axis=1))
             self.df_pheno_dict["pheno_labels"] = list(phenos_labels_np)
             self.df_pheno_dict["pheno_latent"] = list(pheno_latent)
@@ -124,8 +135,10 @@ class OutputSavers:
     def _save_dfs(self):
         df = pd.DataFrame(self.df_dict)
         df_phenos = pd.DataFrame(self.df_pheno_dict)
+        df_kld = pd.DataFrame(self.df_kld_dict)
         write_df_pickle(df, self.save_df_path)
         write_df_pickle(df_phenos, self.save_pheno_df_path)
+        write_df_pickle(df_kld, self.save_kld_df_path)
 
     def _umap_transform(self, motion_z):
         umapper = umap.UMAP(

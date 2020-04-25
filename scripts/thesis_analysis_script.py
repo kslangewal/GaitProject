@@ -18,6 +18,7 @@ def load_model_container(model_class, model_identifier, df_path, datagen_batch_s
     # This function returns an object that wraps over the DL model
     # For each different model identifier, different set of hyperparameters is used
     # To look for the hyper-parameters I used, go to /data/hoi/gait_analysis/scripts/Spatiotemporal_VAE/model_chkpt/
+
     # Hard-coded stuffs
     seq_dim = 128
     fut_dim = 32 # fut_dim is hard-coded to 32, to change adjust generator.py: GaitGeneratorfromDFforTemporalVAE and workflow.py: preprocessing 2 vidoes length. 
@@ -40,7 +41,7 @@ def load_model_container(model_class, model_identifier, df_path, datagen_batch_s
         "recon_gradient": 0.0001,
         "class_weight": 0.001,
         "latent_recon_loss": 1,
-        "fut_weight": 1,
+        "fut_weight": 0,
         }
     save_model_path = "Spatiotemporal_VAE/model_chkpt/ckpt_%s.pth" % model_identifier
     save_hyper_params_path = "Spatiotemporal_VAE/model_chkpt/hyperparms_%s.json" % model_identifier
@@ -140,6 +141,7 @@ def run_save_model_outputs():
     # Output dataframes. One for the general results. One for the PhenoNet identificaiton
     df_save_path = "/mnt/thesis_results/data/model_outputs_full_final.pickle"
     df_pheno_save_path = "/mnt/thesis_results/data/model_phenos_outputs_full_final.pickle"
+    df_kld_save_path = "/mnt/thesis_results/data/model_kld_outputs_full_final.pickle"
 
     identifier_set = ["Thesis_B", "Thesis_B+C", "Thesis_B+C+T", "Thesis_B+C+T+P"]
     model_classess = [BaseContainer, ConditionalContainer, ConditionalContainer, PhenoCondContainer]
@@ -165,7 +167,8 @@ def run_save_model_outputs():
                          model_container_set=model_container_set,
                          identifier_set=identifier_set,
                          save_df_path=df_save_path,
-                         save_pheno_df_path=df_pheno_save_path)
+                         save_pheno_df_path=df_pheno_save_path,
+                         save_kld_df_path=df_kld_save_path)
 
     # Run forward inference here
     saver.forward_batch()

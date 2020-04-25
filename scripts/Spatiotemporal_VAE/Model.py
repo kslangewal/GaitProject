@@ -400,6 +400,7 @@ class PoseVAE(nn.Module):
         out = self.en_blk3(out)
 
         out = self.en2latents(out)
+
         return out
 
     def decode(self, z):

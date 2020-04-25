@@ -105,6 +105,28 @@ class BaseContainer:
             self.model, self.optimizer, self.lr_scheduler = self._load_model()
         #self._save_model()  # Enabled only for renewing newly introduced hyper-parameters
 
+    def forward_decode_only(self, motion_info, towards, num_var_dim, num_datapoints, num_kld):
+        motion_z, motion_mu, motion_logvar = motion_info
+        towards = torch.from_numpy(expand1darr(towards.astype(np.int64), 3, self.seq_dim)).float().to(self.device)
+
+        kld = torch.mean(-0.5 * (1 + motion_logvar - motion_mu.pow(2) - motion_logvar.exp()), dim=0)
+        _, sorted_ind = torch.topk(kld, num_kld)
+
+        sorted_ind = [42, 90, 12, 70, 108]
+
+        recon_motion = torch.zeros(num_kld, num_var_dim*num_datapoints, self.fea_dim, motion_z.shape[1])
+
+        for idx, val in enumerate(sorted_ind):
+            motion_z_one = motion_z[:,val].view(motion_z.shape[0])
+            # Get 90th percentile of motion_z_one
+            motion_cpu_copy = motion_z_one.cpu()
+            max_kld = np.percentile(motion_cpu_copy.numpy(), 90)
+            # Get 10th percentile of motion_z_one
+            min_kld = np.percentile(motion_cpu_copy.numpy(), 10)
+            motion_z_one.cuda()
+            recon_motion[idx,:,:,:] = self.model.decode_only(motion_z, towards, sorted_ind, min_kld, max_kld, num_var_dim, num_datapoints)
+
+        return recon_motion
 
     def forward_evaluate(self, datagen_tuple):
         self.model.eval()
@@ -282,7 +304,7 @@ class BaseContainer:
 
     def loss_function(self, model_outputs, inputs_info):
         # Unfolding tuples
-        x, nan_masks, fut, fut_mask, tasks, tasks_mask = inputs_info
+        x, nan_masks, fut, fut_mask, fut_avail_mask, tasks, tasks_mask = inputs_info
         recon_motion, pred_labels, recon_fut, pose_info, motion_info, task_latent = model_outputs
         pose_z_seq, recon_pose_z_seq, pose_mu, pose_logvar = pose_info
         motion_z, motion_mu, motion_logvar = motion_info
@@ -303,8 +325,8 @@ class BaseContainer:
         recon_loss = self.recon_weight * recon_loss_indicator  # For error propagation
 
         # Future prediction loss
-        diff = fut - recon_fut
-        fut_predic_loss_indicator = torch.mean(fut_mask * (diff ** 2))
+        diff = fut[fut_avail_mask == 1] - recon_fut[fut_avail_mask == 1]
+        fut_predic_loss_indicator = torch.mean(fut_mask[fut_avail_mask == 1] * (diff ** 2))
         fut_predic_loss = self.fut_weight * fut_predic_loss_indicator
 
         # Latent recon loss
@@ -399,7 +421,7 @@ class BaseContainer:
 
     def _convert_input_data(self, data_tuple):
         # Unfolding
-        x, nan_masks, fut_np, fut_mask_np, tasks, tasks_mask, _, _, _, _, _, _ = data_tuple
+        x, nan_masks, fut_np, fut_mask_np, fut_avail_mask_np, tasks, tasks_mask, _, _, _, _, _, _ = data_tuple
 
         # Convert numpy to torch.tensor
         x, fut = numpy2tensor(self.device, x, fut_np)
@@ -407,10 +429,11 @@ class BaseContainer:
         tasks_mask = torch.from_numpy(tasks_mask * 1 + 1e-5).float().to(self.device)
         nan_masks = torch.from_numpy(nan_masks * 1 + 1e-5).float().to(self.device)
         fut_mask = torch.from_numpy(fut_mask_np * 1 + 1e-5).float().to(self.device)
+        fut_avail_mask = torch.from_numpy(fut_avail_mask_np.astype(int)).to(self.device)
 
         # Construct tuple
         input_data = (x, fut_np, fut_mask_np)
-        input_info = (x, nan_masks, fut, fut_mask, tasks, tasks_mask)
+        input_info = (x, nan_masks, fut, fut_mask, fut_avail_mask, tasks, tasks_mask)
         return input_data, input_info
 
     def _get_interval_multiplier(self, quantity_arg):
@@ -497,13 +520,14 @@ class ConditionalContainer(BaseContainer):
 
     def _convert_input_data(self, data_tuple):
         # Unfolding
-        x, nan_masks, fut_np, fut_mask_np, tasks, tasks_mask, _, _, towards, _, _, _ = data_tuple
+        x, nan_masks, fut_np, fut_mask_np, fut_avail_mask_np, tasks, tasks_mask, _, _, towards, _, _, _ = data_tuple
 
         # Convert numpy to torch.tensor
         tasks = torch.from_numpy(tasks).long().to(self.device)
         tasks_mask = torch.from_numpy(tasks_mask * 1 + 1e-5).float().to(self.device)
         nan_masks = torch.from_numpy(nan_masks * 1 + 1e-5).float().to(self.device)
         fut_mask = torch.from_numpy(fut_mask_np * 1 + 1e-5).float().to(self.device)
+        fut_avail_mask = torch.from_numpy(fut_avail_mask_np.astype(int)).to(self.device)
         x, fut, towards = numpy2tensor(self.device,
                                x,
                                fut_np,
@@ -512,7 +536,7 @@ class ConditionalContainer(BaseContainer):
 
         # Construct tuple
         input_data = (x, towards, fut_np, fut_mask_np)
-        input_info = (x, nan_masks, fut, fut_mask, tasks, tasks_mask)
+        input_info = (x, nan_masks, fut, fut_mask, fut_avail_mask, tasks, tasks_mask)
         return input_data, input_info
 
 class PhenoCondContainer(BaseContainer):
@@ -617,13 +641,14 @@ class PhenoCondContainer(BaseContainer):
 
     def _convert_input_data(self, data_tuple):
         # Unfolding
-        x, nan_masks, fut_np, fut_mask_np, tasks_np, tasks_mask_np, phenos_np, phenos_mask_np, towards, _, _, idpatients_np = data_tuple
+        x, nan_masks, fut_np, fut_mask_np, fut_avail_mask_np, tasks_np, tasks_mask_np, phenos_np, phenos_mask_np, towards, _, _, idpatients_np = data_tuple
 
         # Convert numpy to torch.tensor
         tasks = torch.from_numpy(tasks_np).long().to(self.device)
         tasks_mask = torch.from_numpy(tasks_mask_np * 1 + 1e-5).float().to(self.device)
         nan_masks = torch.from_numpy(nan_masks * 1 + 1e-5).float().to(self.device)
         fut_mask = torch.from_numpy(fut_mask_np * 1 + 1e-5).float().to(self.device)
+        fut_avail_mask = torch.from_numpy(fut_avail_mask_np.astype(int)).to(self.device)
         x, fut, towards = numpy2tensor(self.device,
                                 x,
                                 fut_np,
@@ -632,7 +657,7 @@ class PhenoCondContainer(BaseContainer):
 
         # Construct tuple
         input_data = (x, towards, fut_np, fut_mask_np, tasks_np, tasks_mask_np, idpatients_np, phenos_np, phenos_mask_np)
-        input_info = (x, nan_masks, fut, fut_mask, tasks, tasks_mask)
+        input_info = (x, nan_masks, fut, fut_mask, fut_avail_mask, tasks, tasks_mask)
         return input_data, input_info
 
 
@@ -678,7 +703,7 @@ class PhenoCondContainer(BaseContainer):
         total_correlation = joint_entropy - torch.sum(marginal_entropy, dim=1)
         dimwise_kld = torch.sum(marginal_entropy - nlogpz, dim=1)
         # Enable printing for debugging purposes.
-        #print('\n\njoint entr: ', torch.mean(joint_entropy))
+        #print('joint entr: ', torch.mean(joint_entropy))
         #print('marginal entr: ', torch.mean(marginal_entropy))
         #print('nlogqz_condx: ', torch.mean(nlogqz_condx))
         #print('nlogpz: ', torch.mean(nlogpz))
@@ -692,7 +717,7 @@ class PhenoCondContainer(BaseContainer):
 
     def loss_function(self, model_outputs, inputs_info):
         # Unfolding tuples
-        x, nan_masks, fut, fut_mask, tasks, tasks_mask = inputs_info
+        x, nan_masks, fut, fut_mask, fut_avail_mask, tasks, tasks_mask = inputs_info
         recon_motion, pred_labels, recon_fut, pose_info, motion_info, phenos_info, task_latent = model_outputs
         pose_z_seq, recon_pose_z_seq, pose_mu, pose_logvar = pose_info
         motion_z, motion_mu, motion_logvar = motion_info
@@ -710,8 +735,8 @@ class PhenoCondContainer(BaseContainer):
         beta = 1
         motionnet_kld_loss = motionnet_kld_multiplier * beta * motionnet_kld_loss_indicator
         # To use the TC-VAE uncommend the following 2 lines:
-        #motion_decomposed_kld = self._get_decomposed_kld(motion_z, motion_mu, motion_logvar, beta=5)
-        #motionnet_kld_loss = motionnet_kld_multiplier * 0.00004 * (motion_decomposed_kld)
+        # motion_decomposed_kld = self._get_decomposed_kld(motion_z, motion_mu, motion_logvar, beta=5)
+        # motionnet_kld_loss = motionnet_kld_multiplier * 0.00025 * (motion_decomposed_kld)
         # Note by katja 15.4.20: The 0.00004 factor is rather arbitrary to get the decomposed kld on the same scale as the original one,
         # this depends on beta in motion_decomposed_kld. I haven't managed to find a clear relation to do this automatically.
 
@@ -721,8 +746,8 @@ class PhenoCondContainer(BaseContainer):
         recon_loss = self.recon_weight * recon_loss_indicator  # For error propagation
 
         # Future prediction loss
-        diff = fut - recon_fut
-        fut_predic_loss_indicator = torch.mean(fut_mask * (diff ** 2))
+        diff = fut[fut_avail_mask == 1] - recon_fut[fut_avail_mask == 1]
+        fut_predic_loss_indicator = torch.mean(fut_mask[fut_avail_mask == 1] * (diff ** 2))
         fut_predic_loss = self.fut_weight * fut_predic_loss_indicator
 
         # Latent recon loss

@@ -351,3 +351,27 @@ class ConditionalPhenotypeSpatioTemporalVAE(ConditionalSpatioTemporalVAE):
 
         return recon_motion, pred_labels, fut_recon, (pose_z_seq, recon_pose_z_seq, pose_mu, pose_logvar), (
             motion_z, motion_mu, motion_logvar), (pred_identify, labels_identify, pheno_latent), task_latent
+
+
+    def decode_only(self, motion_z, labels, z_var_dim, z_min, z_max, num_var_dim, num_datapoints):
+        # The first movie will contain the original skeleton, the rest linearly steps through one latent dimension
+        latent_range = torch.linspace(z_min, z_max, steps=num_var_dim)
+        recon_motion = torch.zeros(num_var_dim * num_datapoints, self.fea_dim, motion_z.shape[1]).cuda()
+
+        datapoints = np.random.choice(motion_z.shape[0], num_datapoints, replace=False)
+
+        for d in range(0, num_datapoints):
+            motion_z_one = motion_z[datapoints[d],:]
+            labels_one = labels[datapoints[d],:,:]
+
+            labels_new = torch.zeros(num_var_dim, 3, motion_z_one.shape[0]).cuda()
+            motion_z_new = torch.zeros(num_var_dim, motion_z_one.shape[0]).cuda()
+
+            for idx, val in enumerate(latent_range):
+                motion_z_one[z_var_dim] = val
+                motion_z_new[idx,:] = motion_z_one
+                labels_new[idx,:,:] = labels_one
+
+            recon_motion[d*num_var_dim:(d+1)*num_var_dim,:,:], _, _ = self.decode(motion_z_new, labels_new)
+
+        return recon_motion
