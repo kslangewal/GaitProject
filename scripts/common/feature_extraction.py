@@ -248,7 +248,7 @@ class FeatureExtractorForODE(FeatureExtractor):
         super(FeatureExtractorForODE, self).__init__(scr_keyps_dir, None)
         self.data_grand_mean = self._incremental_mean_estimation()  # Shape = (25, 3)
 
-    def extract(self, filter_window=None):
+    def extract(self, filter_window=None, fut_dim=None):
         """
         Generate the dataframe with the 11 columns as described in class docstring.
 
@@ -309,15 +309,18 @@ class FeatureExtractorForODE(FeatureExtractor):
         self.df["leg_masks"] = self.leg_mask_list
 
         # Filter rows with number of frames smaller than "filter_window"
-        if (filter_window is not None) and (isinstance(filter_window, int)):
-            self._filter(filter_window)
+        if (filter_window is not None) and (isinstance(filter_window, int)) and (fut_dim is not None) and (isinstance(fut_dim, int)):
+            self._filter(filter_window, fut_dim)
+        elif (filter_window is not None) and (isinstance(filter_window, int)):
+            self._filter(filter_window, np.inf)
 
         # # Save dataframe
         write_df_pickle(self.df, self.df_save_path)
 
-    def _filter(self, sequence_window_size=128):
+    def _filter(self, sequence_window_size=128, fut_dim=32):
         self.df["num_frames"] = self.df["features"].apply(lambda x: x.shape[0]).copy()
         self.df = self.df[self.df["num_frames"] > sequence_window_size].reset_index(drop=True).copy()
+        self.df["fut_avail_mask"] = self.df["num_frames"] > sequence_window_size + fut_dim
         return None
 
     def _transform_to_features(self, keyps_arr, boundary=(0, 250)):

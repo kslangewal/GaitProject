@@ -358,7 +358,6 @@ class LabelsReader():
             vid2pheno[vid_name] = str(pheno)
             vid2idpatients[vid_name] = idpatient
             vid2leg[vid_name] = leg
-
         return vid2task, vid2pheno, vid2idpatients, vid2leg
 
     def _dataframe_preprocessing(self):
